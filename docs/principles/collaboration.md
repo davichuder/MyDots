@@ -47,7 +47,9 @@ complejidad?
 ## 5. Los mensajes de commit son cartas al futuro
 
 Modo imperativo. Explicá el por qué en el
-cuerpo.
+cuerpo. Seguí [Conventional Commits
+v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)
+para estandarizar el formato.
 
 ```bash
 # Mal
@@ -64,6 +66,11 @@ sessions on expired token access"
 2. Modo imperativo
 3. Línea en blanco subject / cuerpo
 4. El cuerpo explica el POR QUÉ
+5. Formato Conventional Commits:
+   `tipo(alcance): descripción imperativa`
+   Tipos: `feat`, `fix`, `refactor`, `test`,
+   `docs`, `style`, `chore`, `perf`, `ci`,
+   `build`
 
 ## 6. La DX importa tanto como la UX
 
