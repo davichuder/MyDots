@@ -38,8 +38,8 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 ## Phase 0 — Project Setup
 
-- [ ] **T-001** Initialize `go.mod` with path `github.com/davichuder/MyDots` and `go 1.26.3`
-- [ ] **T-002** Add dependencies:
+- [x] **T-001** Initialize `go.mod` with path `github.com/davichuder/MyDots` and `go 1.26.3`
+- [x] **T-002** Add dependencies:
   - `charm.land/bubbletea/v2` — TUI framework (v2.0.6+, stable)
   - `charm.land/bubbles/v2` — UI components
   - `charm.land/lipgloss/v2` — styling
@@ -47,15 +47,15 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
   - `github.com/charmbracelet/x/exp/teatest` — TUI testing
   - `github.com/charmbracelet/x/exp/golden` — snapshot golden files
   - `github.com/cucumber/godog` — BDD acceptance tests
-- [ ] **T-003** Create the full directory structure defined in `design.md` Section 2, including `assets/cheatsheets/`, `assets/scripts/`, and all `internal/` packages
-- [ ] **T-004** Create `assets.go` with `//go:embed assets` directive
-- [ ] **T-005** Create `assets/wsl2-guide.md` with WSL2 installation instructions (installation steps, links, prerequisites)
-- [ ] **T-006** Add `Makefile` with targets: `build`, `test`, `test-integration`, `test-bdd`, `lint`, `shellcheck`, `update-golden`
-- [ ] **T-007** Configure `.golangci.yml` enforcing: no untyped string enums, `errcheck`, `govet`, `staticcheck`
-- [ ] **T-008** Add `.gitattributes` marking `testdata/*.golden` as binary to prevent git from modifying line endings
-- [ ] **T-009** Add `.github/workflows/ci.yml`: `go test ./...`, `golangci-lint`, `shellcheck assets/scripts/` on every PR
-- [ ] **T-010** Create `github.com/davichuder/homebrew-tap` repo with base formula stub for `mydots`
-- [ ] **T-011** Create `github.com/davichuder/dotfiles` repo initialized for chezmoi
+- [x] **T-003** Create the full directory structure defined in `design.md` Section 2, including `assets/cheatsheets/`, `assets/scripts/`, and all `internal/` packages
+- [x] **T-004** Create `assets.go` with `//go:embed assets` directive
+- [x] **T-005** Create `assets/wsl2-guide.md` with WSL2 installation instructions (installation steps, links, prerequisites)
+- [x] **T-006** Add `Makefile` with targets: `build`, `test`, `test-integration`, `test-bdd`, `lint`, `shellcheck`, `update-golden`
+- [x] **T-007** Configure `.golangci.yml` enforcing: no untyped string enums, `errcheck`, `govet`, `staticcheck`
+- [x] **T-008** Add `.gitattributes` marking `testdata/*.golden` as binary to prevent git from modifying line endings
+- [x] **T-009** Add `.github/workflows/ci.yml`: `go test ./...`, `golangci-lint`, `shellcheck assets/scripts/` on every PR
+- [x] **T-010** Create `github.com/davichuder/homebrew-tap` repo with base formula stub for `mydots`
+- [x] **T-011** Create `github.com/davichuder/dotfiles` repo initialized for chezmoi
 
 ---
 
