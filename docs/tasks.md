@@ -65,7 +65,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-012** Write failing tests for `Detect()`.
+- [x] **T-012** Write failing tests for `Detect()`.
   - `Detect()` must accept an injectable `goos string` parameter so tests can simulate any OS without cross-compilation: `Detect(goos string) (Platform, error)`. `main.go` calls `Detect(runtime.GOOS)`.
   - Triangulation: `goos="darwin"`, `goos="linux"` + native `/proc/version`, `goos="linux"` + WSL2 `/proc/version`, `goos="windows"`, `goos="plan9"`
   - Edge cases: `/proc/version` unreadable (permission denied), file missing, file empty, file contains `Microsoft` in uppercase, file contains multiple lines with "microsoft" on line 2
@@ -74,7 +74,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-013** Implement `Platform`, `OS`, `Variant` typed string constants, `ErrWindowsDetected`, `ErrUnsupportedOS`, and `Detect(goos string) (Platform, error)` (design.md §3.1, §6)
+- [x] **T-013** Implement `Platform`, `OS`, `Variant` typed string constants, `ErrWindowsDetected`, `ErrUnsupportedOS`, and `Detect(goos string) (Platform, error)` (design.md §3.1, §6)
 
 ---
 
