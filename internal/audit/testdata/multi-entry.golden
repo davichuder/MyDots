@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "entries": [
+    {
+      "module_id": "M-01",
+      "name": "Homebrew",
+      "version": "4.5.1",
+      "method": "curl-script",
+      "os": "darwin",
+      "status": "installed",
+      "timestamp": "2026-05-23T10:30:00Z"
+    },
+    {
+      "module_id": "M-02",
+      "name": "Zsh",
+      "version": "5.9",
+      "method": "brew",
+      "os": "darwin",
+      "status": "skipped",
+      "timestamp": "2026-05-23T10:31:00Z"
+    }
+  ]
+}

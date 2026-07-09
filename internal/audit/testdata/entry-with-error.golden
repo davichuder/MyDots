@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "entries": [
+    {
+      "module_id": "M-38",
+      "name": "Docker",
+      "version": "",
+      "method": "apt",
+      "os": "ubuntu-wsl2",
+      "status": "failed",
+      "error": "systemd not available in this WSL2 instance",
+      "timestamp": "2026-05-23T10:45:00Z"
+    }
+  ]
+}

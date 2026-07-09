@@ -100,7 +100,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-016** Write failing tests for audit operations.
+- [x] **T-016** Write failing tests for audit operations.
   - Critical requirement: `Append()` must be safe for concurrent calls. The read-modify-write cycle (`loadOrEmpty → append → writeFile → Rename`) is NOT thread-safe with only `os.Rename`. A `sync.Mutex` at package level is required.
   - `Append()` first call: creates file with correct JSON structure and exactly one entry
   - `Append()` subsequent calls: accumulates entries in order, never overwrites existing ones
@@ -112,7 +112,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-017** Implement `Entry` struct, `InstallStatus` constants, `loadOrEmpty()`, and `Append()` with `sync.Mutex` + temp file + `os.Rename` (design.md §8, NFR-07)
+- [x] **T-017** Implement `Entry` struct, `InstallStatus` constants, `loadOrEmpty()`, and `Append()` with `sync.Mutex` + temp file + `os.Rename` (design.md §8, NFR-07)
 
 ---
 
