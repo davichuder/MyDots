@@ -24,4 +24,11 @@ jobs:
           version: latest
 
       - name: Shellcheck
-        run: shellcheck --shell=sh assets/scripts/*.sh
+        run: |
+          shopt -s nullglob
+          scripts=(assets/scripts/*.sh)
+          if [ ${#scripts[@]} -gt 0 ]; then
+            shellcheck --shell=sh "${scripts[@]}"
+          else
+            echo "No shell scripts to check"
+          fi
