@@ -1,3 +1,5 @@
+// Package sudo handles elevation requests and keepalive goroutines
+// so install pipeline commands can run with sudo privileges.
 package sudo
 
 import (

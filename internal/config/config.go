@@ -1,3 +1,5 @@
+// Package config manages the mydots JSON configuration file,
+// providing typed constants, atomic Save, Load, and Validate operations.
 package config
 
 import (

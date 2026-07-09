@@ -1,3 +1,5 @@
+// Package platform detects the current OS and variant (native/WSL2)
+// through an injectable goos parameter and optional /proc/version reading.
 package platform
 
 import (

@@ -1,3 +1,5 @@
+// Package audit provides concurrent-safe append-only audit logging for install sessions.
+// Each Entry records a module's install status, version, and timestamp.
 package audit
 
 import (

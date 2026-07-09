@@ -1,3 +1,5 @@
+// Package errors defines the MyDotsError interface and concrete error types
+// that carry What/Why/Fix context for TUI rendering.
 package errors
 
 import (

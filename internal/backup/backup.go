@@ -1,3 +1,5 @@
+// Package backup creates timestamped backups of files and directories
+// under ~/.mydots-backups/, preserving relative paths from $HOME.
 package backup
 
 import (

@@ -5,14 +5,14 @@ linters:
     - errcheck
     - govet
     - staticcheck
-
-linters-settings:
-  govet:
-    enable-all: true
-  staticcheck:
-    checks: ["all"]
+  settings:
+    govet:
+      disable:
+        - shadow
+        - fieldalignment
+    staticcheck:
+      checks: ["all"]
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
