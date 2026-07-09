@@ -39,8 +39,12 @@ func (e ErrUnsupportedOS) Error() string {
 	return "unsupported OS: " + e.GOOS
 }
 
+const procVersionPath string = "/proc/version"
+
+const wsl2Marker string = "microsoft"
+
 var readProcVersion = func() ([]byte, error) {
-	return os.ReadFile("/proc/version")
+	return os.ReadFile(procVersionPath)
 }
 
 func Detect(goos string) (Platform, error) {
@@ -54,7 +58,7 @@ func Detect(goos string) (Platform, error) {
 	case "linux":
 		data, err := readProcVersion()
 		variant := Native
-		if err == nil && strings.Contains(strings.ToLower(string(data)), "microsoft") {
+		if err == nil && strings.Contains(strings.ToLower(string(data)), wsl2Marker) {
 			variant = WSL2
 		}
 		return Platform{OS: Linux, Variant: variant, Arch: runtime.GOARCH}, nil

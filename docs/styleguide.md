@@ -50,7 +50,42 @@ necesitar comentarios como muleta.
 - Funciones de menos de 40 líneas idealmente
 - Un propósito por función (SRP)
 
-### 1.4 Imports
+### 1.4 Magic strings
+
+Ningún string literal con significado semántico aparece directamente
+en el código. Todo valor que se repite, representa un dominio, o
+tiene significado especial se declara como constante tipada.
+
+```go
+// ✅ Correcto — constantes con tipo explícito
+const DefaultChezmoiRepoURL string = "https://github.com/davichuder/dotfiles"
+const procVersionPath    string = "/proc/version"
+const wsl2Marker         string = "microsoft"
+
+// ❌ Incorrecto — magic string en medio del código
+os.ReadFile("/proc/version")
+strings.Contains(data, "microsoft")
+
+// ✅ Correcto — constantes de path agrupadas
+const configDirName  string = ".config"
+const appDirName     string = "mydots"
+const configFileName string = "mydots-config.json"
+
+// ❌ Incorrecto — path segments como literales
+filepath.Join(home, ".config", "mydots", "mydots-config.json")
+
+// ✅ Correcto — error messages pueden ser literales (son el mensaje en sí)
+return fmt.Errorf("invalid font: %q", cfg.Font)
+```
+
+**Excepciones:** Los mensajes de error (`fmt.Errorf`), format strings,
+y valores únicos de prueba que solo aparecen una vez y son obvios
+en contexto (ej. `"NonExistent"` en un test de validación).
+
+**Regla práctica:** Si el string aparece en más de un lugar o
+tiene significado de dominio (no es solo un mensaje), es constante.
+
+### 1.5 Imports
 
 Tres grupos separados por línea en blanco:
 
