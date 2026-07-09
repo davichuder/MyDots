@@ -82,7 +82,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-014** Write failing tests for all config operations:
+- [x] **T-014** Write failing tests for all config operations:
   - `DefaultConfig()`: assert every field matches specs.md §6.1 defaults exactly
   - `Load()`: valid JSON, malformed JSON, missing file, file with unknown fields (forward compatibility), file with valid JSON but invalid enum value
   - `Save()`: creates parent directories if missing, overwrites existing file atomically, returns error on permission denied
@@ -92,7 +92,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-015** Implement all typed string constants, `Config` struct, and all config functions (design.md §7)
+- [x] **T-015** Implement all typed string constants, `Config` struct, and all config functions (design.md §7)
 
 ---
 
