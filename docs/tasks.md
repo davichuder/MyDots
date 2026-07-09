@@ -138,7 +138,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-020** Write failing tests for sudo keepalive:
+- [x] **T-020** Write failing tests for sudo keepalive:
   - `StartKeepalive()` goroutine stops cleanly when context is cancelled — verify no goroutine leak using a done channel or timeout assertion
   - `StartKeepalive()` goroutine output goes to `io.Discard` — mock executor verifies no bytes written to caller's writer
   - `RequestElevation()` connects process stdin/stdout/stderr to the terminal (mock executor verifies these are set, not nil)
@@ -146,7 +146,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-021** Implement `RequestElevation()` and `StartKeepalive(ctx context.Context)` (design.md §10)
+- [x] **T-021** Implement `RequestElevation()` and `StartKeepalive(ctx context.Context)` (design.md §10)
 
 ---
 
