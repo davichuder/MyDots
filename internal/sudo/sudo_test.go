@@ -1,0 +1,211 @@
+package sudo
+
+import (
+	"context"
+	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"sync"
+	"testing"
+	"time"
+)
+
+func restoreGlobals() {
+	runCmd = func(cmd *exec.Cmd) error { return cmd.Run() }
+	keepaliveInterval = 45 * time.Second
+}
+
+func TestRequestElevation_SetsTerminalStreams(t *testing.T) {
+	var capturedStdin io.Reader
+	var capturedStdout io.Writer
+	var capturedStderr io.Writer
+
+	runCmd = func(cmd *exec.Cmd) error {
+		capturedStdin = cmd.Stdin
+		capturedStdout = cmd.Stdout
+		capturedStderr = cmd.Stderr
+		return nil
+	}
+	defer restoreGlobals()
+
+	err := RequestElevation()
+	if err != nil {
+		t.Fatalf("RequestElevation returned error: %v", err)
+	}
+
+	if capturedStdin != os.Stdin {
+		t.Error("Stdin should be os.Stdin")
+	}
+	if capturedStdout != os.Stdout {
+		t.Error("Stdout should be os.Stdout")
+	}
+	if capturedStderr != os.Stderr {
+		t.Error("Stderr should be os.Stderr")
+	}
+}
+
+func TestRequestElevation_ExecutesSudoV(t *testing.T) {
+	var capturedArgs []string
+	runCmd = func(cmd *exec.Cmd) error {
+		capturedArgs = cmd.Args
+		return nil
+	}
+	defer restoreGlobals()
+
+	_ = RequestElevation()
+
+	if len(capturedArgs) < 2 {
+		t.Fatalf("expected at least 2 args, got: %v", capturedArgs)
+	}
+	if capturedArgs[0] != "sudo" {
+		t.Errorf("expected command 'sudo', got: %q", capturedArgs[0])
+	}
+	if capturedArgs[1] != "-v" {
+		t.Errorf("expected arg '-v', got: %q", capturedArgs[1])
+	}
+}
+
+func TestRequestElevation_ReturnsError(t *testing.T) {
+	expectedErr := errors.New("sudo not available")
+	runCmd = func(*exec.Cmd) error {
+		return expectedErr
+	}
+	defer restoreGlobals()
+
+	err := RequestElevation()
+	if err != expectedErr {
+		t.Errorf("expected error %v, got: %v", expectedErr, err)
+	}
+}
+
+func TestDefaultKeepaliveInterval(t *testing.T) {
+	defer restoreGlobals()
+
+	if keepaliveInterval != 45*time.Second {
+		t.Errorf("default keepaliveInterval = %v, want 45s", keepaliveInterval)
+	}
+}
+
+func TestStartKeepalive_OutputToDiscard(t *testing.T) {
+	var capturedStdout, capturedStderr io.Writer
+	runCmd = func(cmd *exec.Cmd) error {
+		capturedStdout = cmd.Stdout
+		capturedStderr = cmd.Stderr
+		return nil
+	}
+	keepaliveInterval = 10 * time.Millisecond
+	defer restoreGlobals()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	StartKeepalive(ctx)
+
+	time.Sleep(15 * time.Millisecond)
+	cancel()
+
+	if capturedStdout != io.Discard {
+		t.Error("sudo stdout should go to io.Discard")
+	}
+	if capturedStderr != io.Discard {
+		t.Error("sudo stderr should go to io.Discard")
+	}
+}
+
+func TestStartKeepalive_StopsOnCancel(t *testing.T) {
+	var mu sync.Mutex
+	callCount := 0
+
+	runCmd = func(*exec.Cmd) error {
+		mu.Lock()
+		callCount++
+		mu.Unlock()
+		return nil
+	}
+	keepaliveInterval = 10 * time.Millisecond
+	defer restoreGlobals()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	StartKeepalive(ctx)
+
+	time.Sleep(25 * time.Millisecond)
+
+	mu.Lock()
+	before := callCount
+	mu.Unlock()
+
+	cancel()
+
+	// Wait long enough that an alive goroutine would tick several times
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	after := callCount
+	mu.Unlock()
+
+	// The goroutine may tick once more after cancel due to select randomness
+	// (both ticker.C and ctx.Done() ready). More than 2 extra = still running.
+	if after > before+2 {
+		t.Errorf("goroutine should have stopped after cancel: before=%d, after=%d", before, after)
+	}
+}
+
+func TestStartKeepalive_AlreadyCancelledContext(t *testing.T) {
+	var mu sync.Mutex
+	callCount := 0
+
+	runCmd = func(*exec.Cmd) error {
+		mu.Lock()
+		callCount++
+		mu.Unlock()
+		return nil
+	}
+	keepaliveInterval = 10 * time.Millisecond
+	defer restoreGlobals()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before StartKeepalive
+
+	StartKeepalive(ctx)
+
+	time.Sleep(30 * time.Millisecond)
+
+	mu.Lock()
+	count := callCount
+	mu.Unlock()
+
+	if count > 0 {
+		t.Errorf("expected 0 sudo calls with already cancelled context, got: %d", count)
+	}
+}
+
+func TestStartKeepalive_MultipleCalls(t *testing.T) {
+	var mu sync.Mutex
+	callCount := 0
+
+	runCmd = func(*exec.Cmd) error {
+		mu.Lock()
+		callCount++
+		mu.Unlock()
+		return nil
+	}
+	keepaliveInterval = 10 * time.Millisecond
+	defer restoreGlobals()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	StartKeepalive(ctx)
+	StartKeepalive(ctx)
+
+	time.Sleep(35 * time.Millisecond)
+
+	mu.Lock()
+	count := callCount
+	mu.Unlock()
+
+	// Each goroutine ticks at 10ms, 20ms, 30ms = 3 each
+	// Allow some slack due to goroutine scheduling
+	if count < 2 {
+		t.Errorf("expected at least 2 sudo calls across 2 goroutines, got: %d", count)
+	}
+}

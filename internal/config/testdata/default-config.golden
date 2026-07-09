@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "font": "JetBrainsMono",
+  "theme": "tokyo-night",
+  "languages": {
+    "java": false,
+    "php": false
+  },
+  "nvim": {
+    "config": "base",
+    "framework": "none"
+  },
+  "chezmoi": {
+    "repo_url": "https://github.com/davichuder/dotfiles"
+  }
+}

@@ -1,0 +1,18 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+  settings:
+    govet:
+      disable:
+        - shadow
+        - fieldalignment
+    staticcheck:
+      checks: ["all"]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
