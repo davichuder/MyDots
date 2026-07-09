@@ -154,7 +154,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-022** Write failing tests for error interface and implementations:
+- [x] **T-022** Write failing tests for error interface and implementations:
   - Each error type (`BrewInstallError`, `AptInstallError`, `CurlScriptError`, `ConfigWriteError`) implements `MyDotsError`
   - `What()`, `Why()`, `Fix()` return non-empty strings for all types
   - `.Error()` string is non-empty for all types
@@ -164,7 +164,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-023** Implement `MyDotsError` interface, `BrewInstallError`, `AptInstallError`, `CurlScriptError`, `ConfigWriteError`, and `GenericError` (design.md §12, NFR-16)
+- [x] **T-023** Implement `MyDotsError` interface, `BrewInstallError`, `AptInstallError`, `CurlScriptError`, `ConfigWriteError`, and `GenericError` (design.md §12, NFR-16)
 
 ---
 
