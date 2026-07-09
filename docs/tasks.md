@@ -120,7 +120,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-018** Write failing tests for backup operations:
+- [x] **T-018** Write failing tests for backup operations:
   - `BackupFile()`: file is copied to `~/.mydots-backups/<timestamp>/<relative-from-HOME>`, relative path is preserved correctly
   - `BackupFile()` with symlink: the symlink target content is copied (not a dangling link)
   - `BackupDir()`: all files in the directory are backed up with correct paths; subdirectories are preserved
@@ -130,7 +130,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-019** Implement `BackupFile()`, `BackupDir()`, `ListBackups()`, `DeleteBackup()` (design.md §9)
+- [x] **T-019** Implement `BackupFile()`, `BackupDir()`, `ListBackups()`, `DeleteBackup()` (design.md §9)
 
 ---
 
