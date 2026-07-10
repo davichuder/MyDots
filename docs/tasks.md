@@ -174,14 +174,14 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-024** Write failing tests for module types and constants:
+- [x] **T-024** Write failing tests for module types and constants:
   - All `ModuleID` constants are non-empty strings with no duplicates across the full set
   - `Criticality` and `InstallStatus` string values match specs.md §6.2 exactly
   - `InstallContext` fields are all accessible and a zero-value struct does not panic on field access
 
 **[GREEN]**
 
-- [ ] **T-025** Implement `ModuleID` constants (one per module M-01 through M-48), `Criticality`, `InstallStatus`, `Module` interface, and `InstallContext` struct (design.md §3.2, §3.5)
+- [x] **T-025** Implement `ModuleID` constants (one per module M-01 through M-48), `Criticality`, `InstallStatus`, `Module` interface, and `InstallContext` struct (design.md §3.2, §3.5)
 
 ---
 
