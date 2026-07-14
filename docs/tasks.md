@@ -189,7 +189,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-026** Write failing tests for runner functions using mock executor (`SetExecutor`):
+- [x] **T-026** Write failing tests for runner functions using mock executor (`SetExecutor`):
   - `CommandExists()`: returns true when binary is on PATH, false when not found
   - `CaptureOutput()`: returns stdout trimmed on success, returns empty string on non-zero exit
   - `Run(ctx, logw, name, args...)`: every stdout line is written to `logw` via `bufio.Scanner`; stderr lines are also written to `logw`; non-zero exit returns error; context cancellation returns error
@@ -201,7 +201,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-027** Implement all runner functions with `exec.CommandContext`, `bufio.Scanner` for line-by-line output, and `SetExecutor()` for mock injection (design.md §5.4)
+- [x] **T-027** Implement all runner functions with `exec.CommandContext`, `bufio.Scanner` for line-by-line output, and `SetExecutor()` for mock injection (design.md §5.4)
 
 ---
 
