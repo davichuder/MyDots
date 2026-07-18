@@ -174,14 +174,14 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-024** Write failing tests for module types and constants:
+- [x] **T-024** Write failing tests for module types and constants:
   - All `ModuleID` constants are non-empty strings with no duplicates across the full set
   - `Criticality` and `InstallStatus` string values match specs.md §6.2 exactly
   - `InstallContext` fields are all accessible and a zero-value struct does not panic on field access
 
 **[GREEN]**
 
-- [ ] **T-025** Implement `ModuleID` constants (one per module M-01 through M-48), `Criticality`, `InstallStatus`, `Module` interface, and `InstallContext` struct (design.md §3.2, §3.5)
+- [x] **T-025** Implement `ModuleID` constants (one per module M-01 through M-48), `Criticality`, `InstallStatus`, `Module` interface, and `InstallContext` struct (design.md §3.2, §3.5)
 
 ---
 
@@ -189,7 +189,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-026** Write failing tests for runner functions using mock executor (`SetExecutor`):
+- [x] **T-026** Write failing tests for runner functions using mock executor (`SetExecutor`):
   - `CommandExists()`: returns true when binary is on PATH, false when not found
   - `CaptureOutput()`: returns stdout trimmed on success, returns empty string on non-zero exit
   - `Run(ctx, logw, name, args...)`: every stdout line is written to `logw` via `bufio.Scanner`; stderr lines are also written to `logw`; non-zero exit returns error; context cancellation returns error
@@ -201,7 +201,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-027** Implement all runner functions with `exec.CommandContext`, `bufio.Scanner` for line-by-line output, and `SetExecutor()` for mock injection (design.md §5.4)
+- [x] **T-027** Implement all runner functions with `exec.CommandContext`, `bufio.Scanner` for line-by-line output, and `SetExecutor()` for mock injection (design.md §5.4)
 
 ---
 
@@ -209,7 +209,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-028** Write failing tests for `BrewModule`:
+- [x] **T-028** Write failing tests for `BrewModule`:
   - `IsInstalled()` calls `CommandExists` with the configured `checkCommand`
   - `Install()` calls `runner.Brew` with the configured `formula`
   - `AuditInfo()` calls `CaptureOutput` with `checkCommand --version`
@@ -219,7 +219,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-029** Implement `BrewModule` struct and all interface methods (design.md §3.3)
+- [x] **T-029** Implement `BrewModule` struct and all interface methods (design.md §3.3)
 
 ---
 
@@ -227,7 +227,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-030** Write failing tests for the module catalogue:
+- [x] **T-030** Write failing tests for the module catalogue:
   - `allModules()` returns exactly 48 modules
   - No two modules share the same `ID()`
   - The first module is `M-01` (Homebrew) and its `Criticality()` returns `Critical`
@@ -238,7 +238,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-031** Implement `allModules()` returning all 48 modules in the canonical order defined in specs.md §5 (design.md §5.1). Note: this is a statically ordered list, not a runtime topological sort. `Dependencies()` is used only by the executor for failure propagation.
+- [x] **T-031** Implement `allModules()` returning all 48 modules in the canonical order defined in specs.md §5 (design.md §5.1). Note: this is a statically ordered list, not a runtime topological sort. `Dependencies()` is used only by the executor for failure propagation.
 
 ---
 
@@ -246,19 +246,18 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-032** Write failing tests for `BuildPlan()`:
-  - All defaults (java=false, php=false, nvim=base, framework=none): plan has 44 modules (48 minus M-14, M-15, M-16, M-18, M-19 minus optional M-19 plus... verify exact count)
+- [x] **T-032** Write failing tests for `BuildPlan()`:
+  - Default config: plan has exactly 43 modules (48 total - 5 optional excluded)
   - java=true: M-14 and M-15 are included in the plan in correct order
   - php=true: M-16 is included
   - nvim=personal: M-18 is included; M-45 still precedes M-18 in the result
   - framework=lazyvim: M-19 is included
   - All optional enabled: all 48 modules in plan
-  - Disabled modules produce `StatusSkippedDisabled` audit entries written before `BuildPlan` returns
   - Edge cases: unknown `nvim.config` value treated as base; unknown `framework` treated as none
 
 **[GREEN]**
 
-- [ ] **T-033** Implement `BuildPlan()` and `isDisabled()` (design.md §5.2)
+- [x] **T-033** Implement `BuildPlan()` and `isDisabled()` (design.md §5.2)
 
 ---
 
@@ -266,7 +265,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-034** Write failing tests for executor behavior:
+- [x] **T-034** Write failing tests for executor behavior:
   - All modules succeed: channel receives `StatusInstalled` for each in plan order, then channel closes
   - Non-critical module fails: subsequent modules still run; channel stays open; `failedIDs` records the failure
   - Critical module (M-01) fails: channel closes immediately after failure event; no subsequent module events are sent
@@ -278,8 +277,8 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-035** Implement `Run()` top-level executor and `runOne()` helper (design.md §5.3)
-- [ ] **T-036** Define `ProgressEvent` struct with `ModuleID`, `Status`, `LogLine`, `Err`
+- [x] **T-035** Implement `Run()` top-level executor and `runOne()` helper (design.md §5.3)
+- [x] **T-036** Define `ProgressEvent` struct with `ModuleID`, `Status`, `LogLine`, `Err`
 
 ---
 

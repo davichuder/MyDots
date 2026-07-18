@@ -27,6 +27,12 @@ go.work.sum
 # env file
 .env
 
+# SDD skill registry (auto-generated)
+.atl/
+
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Bare coverage file (no extension)
+coverage
