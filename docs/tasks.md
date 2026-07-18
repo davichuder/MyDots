@@ -209,7 +209,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-028** Write failing tests for `BrewModule`:
+- [x] **T-028** Write failing tests for `BrewModule`:
   - `IsInstalled()` calls `CommandExists` with the configured `checkCommand`
   - `Install()` calls `runner.Brew` with the configured `formula`
   - `AuditInfo()` calls `CaptureOutput` with `checkCommand --version`
@@ -219,7 +219,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-029** Implement `BrewModule` struct and all interface methods (design.md §3.3)
+- [x] **T-029** Implement `BrewModule` struct and all interface methods (design.md §3.3)
 
 ---
 
