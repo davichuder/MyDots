@@ -227,7 +227,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-030** Write failing tests for the module catalogue:
+- [x] **T-030** Write failing tests for the module catalogue:
   - `allModules()` returns exactly 48 modules
   - No two modules share the same `ID()`
   - The first module is `M-01` (Homebrew) and its `Criticality()` returns `Critical`
@@ -238,7 +238,7 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[GREEN]**
 
-- [ ] **T-031** Implement `allModules()` returning all 48 modules in the canonical order defined in specs.md §5 (design.md §5.1). Note: this is a statically ordered list, not a runtime topological sort. `Dependencies()` is used only by the executor for failure propagation.
+- [x] **T-031** Implement `allModules()` returning all 48 modules in the canonical order defined in specs.md §5 (design.md §5.1). Note: this is a statically ordered list, not a runtime topological sort. `Dependencies()` is used only by the executor for failure propagation.
 
 ---
 
