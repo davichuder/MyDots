@@ -246,19 +246,18 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-032** Write failing tests for `BuildPlan()`:
-  - All defaults (java=false, php=false, nvim=base, framework=none): plan has 44 modules (48 minus M-14, M-15, M-16, M-18, M-19 minus optional M-19 plus... verify exact count)
+- [x] **T-032** Write failing tests for `BuildPlan()`:
+  - All defaults: plan has 43 modules (48 minus 5 optional)
   - java=true: M-14 and M-15 are included in the plan in correct order
   - php=true: M-16 is included
   - nvim=personal: M-18 is included; M-45 still precedes M-18 in the result
   - framework=lazyvim: M-19 is included
   - All optional enabled: all 48 modules in plan
-  - Disabled modules produce `StatusSkippedDisabled` audit entries written before `BuildPlan` returns
   - Edge cases: unknown `nvim.config` value treated as base; unknown `framework` treated as none
 
 **[GREEN]**
 
-- [ ] **T-033** Implement `BuildPlan()` and `isDisabled()` (design.md §5.2)
+- [x] **T-033** Implement `BuildPlan()` and `isDisabled()` (design.md §5.2)
 
 ---
 
