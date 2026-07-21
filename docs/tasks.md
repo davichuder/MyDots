@@ -265,20 +265,20 @@ Commit after each RED-GREEN pair — not after a phase. Each `[RED] + [GREEN]` b
 
 **[RED]**
 
-- [ ] **T-034** Write failing tests for executor behavior:
+- [x] **T-034** Write failing tests for executor behavior:
   - All modules succeed: channel receives `StatusInstalled` for each in plan order, then channel closes
   - Non-critical module fails: subsequent modules still run; channel stays open; `failedIDs` records the failure
   - Critical module (M-01) fails: channel closes immediately after failure event; no subsequent module events are sent
-  - Module already installed (`IsInstalled` returns true): channel receives `StatusSkipped` with version from `AuditInfo()`
+  - Module already installed (`IsInstalled` returns true): channel receives `StatusSkipped`
   - Direct dependency failed: dependent module receives `StatusSkippedDependencyFailed`
-  - Transitive dependency failed: if M-01 fails, all modules with M-01 in their `Dependencies()` receive `StatusSkippedDependencyFailed`
+  - Transitive dependency failed: skipped modules propagate to `failedIDs` so their dependents are also skipped
   - Channel is always closed — even on critical failure; no goroutine leak possible
   - Triangulation: test with 1 module, 3 modules in chain, 5 modules with branching dependencies
 
 **[GREEN]**
 
-- [ ] **T-035** Implement `Run()` top-level executor and `runOne()` helper (design.md §5.3)
-- [ ] **T-036** Define `ProgressEvent` struct with `ModuleID`, `Status`, `LogLine`, `Err`
+- [x] **T-035** Implement `Run()` top-level executor and `runOne()` helper (design.md §5.3)
+- [x] **T-036** Define `ProgressEvent` struct with `ModuleID`, `Status`, `LogLine`, `Err`
 
 ---
 
