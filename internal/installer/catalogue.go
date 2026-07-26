@@ -1,6 +1,9 @@
 package installer
 
-import "github.com/davichuder/MyDots/internal/platform"
+import (
+	"github.com/davichuder/MyDots/internal/installer/modules"
+	"github.com/davichuder/MyDots/internal/platform"
+)
 
 // stubModule is a temporary placeholder for complex module implementations
 // (e.g. Homebrew, Zsh, Docker) that have their own files under modules/.
@@ -45,7 +48,7 @@ func criticalStub(id ModuleID, name string) Module {
 // use BrewModule directly.
 func allModules() []Module {
 	return []Module{
-		criticalStub(ModHomebrew, "Homebrew"),                 // M-01 — CRITICAL
+		modules.Homebrew,                                      // M-01 — CRITICAL
 		stub(ModGhostty, "Ghostty"),                           // M-48
 		stub(ModNerdFont, "Nerd Font"),                        // M-47
 		stub(ModGit, "Git"),                                   // M-05

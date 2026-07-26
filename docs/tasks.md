@@ -290,7 +290,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-037** Write failing tests for `homebrew.go` (M-01):
+- [x] **T-037** Write failing tests for `homebrew.go` (M-01):
   - `IsInstalled()` true when `which brew` succeeds; false otherwise
   - `Install()` on Darwin: calls homebrew curl-script (mock)
   - `Install()` on Linux: same script (mock)
@@ -299,7 +299,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-038** Implement `homebrew.go`
+- [x] **T-038** Implement `homebrew.go`
 
 ---
 

@@ -9,10 +9,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"strings"
@@ -104,8 +104,8 @@ func BrewTap(ctx context.Context, logw io.Writer, tap, formula string) error {
 // after execution (deferred cleanup). Environment variables from env are
 // merged into the process environment; new values take precedence over
 // existing ones.
-func Script(ctx context.Context, logw io.Writer, fs embed.FS, path string, env map[string]string) error {
-	data, err := fs.ReadFile(path)
+func Script(ctx context.Context, logw io.Writer, fSys fs.FS, path string, env map[string]string) error {
+	data, err := fs.ReadFile(fSys, path)
 	if err != nil {
 		return fmt.Errorf("read embedded script %s: %w", path, err)
 	}

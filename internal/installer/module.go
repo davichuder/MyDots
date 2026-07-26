@@ -1,111 +1,92 @@
 // Package installer defines the module interface, types, and constants
 // used by the install pipeline. Every module in the catalogue implements
 // the Module interface.
+//
+// Core types (Module, ModuleID, Criticality, InstallContext) are defined in
+// the types sub-package and re-exported here via type aliases so that
+// existing code referencing installer.Module, installer.ModuleID, etc.
+// continues to work without import changes.
 package installer
 
-import "github.com/davichuder/MyDots/internal/platform"
+import "github.com/davichuder/MyDots/internal/installer/types"
 
 // ModuleID uniquely identifies a module in the catalogue.
-// Each value is a stable identifier following the M-XX pattern.
-type ModuleID string
+type ModuleID = types.ModuleID
 
 const (
-	ModHomebrew        ModuleID = "M-01"
-	ModZsh             ModuleID = "M-02"
-	ModOhMyZsh         ModuleID = "M-03"
-	ModZellij          ModuleID = "M-04"
-	ModGit             ModuleID = "M-05"
-	ModGitCredOAuth    ModuleID = "M-06"
-	ModLazygit         ModuleID = "M-07"
-	ModFnm             ModuleID = "M-08"
-	ModNode            ModuleID = "M-09"
-	ModUv              ModuleID = "M-10"
-	ModPython          ModuleID = "M-11"
-	ModGo              ModuleID = "M-12"
-	ModCppToolchain    ModuleID = "M-13"
-	ModSdkman          ModuleID = "M-14"
-	ModJava            ModuleID = "M-15"
-	ModPhp             ModuleID = "M-16"
-	ModNeovim          ModuleID = "M-17"
-	ModNeovimPersonal  ModuleID = "M-18"
-	ModNeovimFramework ModuleID = "M-19"
-	ModAtuin           ModuleID = "M-20"
-	ModZoxide          ModuleID = "M-21"
-	ModBat             ModuleID = "M-22"
-	ModEza             ModuleID = "M-23"
-	ModFd              ModuleID = "M-24"
-	ModRipgrep         ModuleID = "M-25"
-	ModFzf             ModuleID = "M-26"
-	ModSd              ModuleID = "M-27"
-	ModJq              ModuleID = "M-28"
-	ModYq              ModuleID = "M-29"
-	ModTldr            ModuleID = "M-30"
-	ModDelta           ModuleID = "M-31"
-	ModBottom          ModuleID = "M-32"
-	ModThefuck         ModuleID = "M-33"
-	ModCarapace        ModuleID = "M-34"
-	ModGlow            ModuleID = "M-35"
-	ModGh              ModuleID = "M-36"
-	ModClipboard       ModuleID = "M-37"
-	ModDocker          ModuleID = "M-38"
-	ModLazydocker      ModuleID = "M-39"
-	ModOpencode        ModuleID = "M-40"
-	ModRtk             ModuleID = "M-41"
-	ModCaveman         ModuleID = "M-42"
-	ModGentleAi        ModuleID = "M-43"
-	ModMcpConfig       ModuleID = "M-44"
-	ModChezmoi         ModuleID = "M-45"
-	ModTheme           ModuleID = "M-46"
-	ModNerdFont        ModuleID = "M-47"
-	ModGhostty         ModuleID = "M-48"
+	ModHomebrew        ModuleID = types.ModHomebrew
+	ModZsh             ModuleID = types.ModZsh
+	ModOhMyZsh         ModuleID = types.ModOhMyZsh
+	ModZellij          ModuleID = types.ModZellij
+	ModGit             ModuleID = types.ModGit
+	ModGitCredOAuth    ModuleID = types.ModGitCredOAuth
+	ModLazygit         ModuleID = types.ModLazygit
+	ModFnm             ModuleID = types.ModFnm
+	ModNode            ModuleID = types.ModNode
+	ModUv              ModuleID = types.ModUv
+	ModPython          ModuleID = types.ModPython
+	ModGo              ModuleID = types.ModGo
+	ModCppToolchain    ModuleID = types.ModCppToolchain
+	ModSdkman          ModuleID = types.ModSdkman
+	ModJava            ModuleID = types.ModJava
+	ModPhp             ModuleID = types.ModPhp
+	ModNeovim          ModuleID = types.ModNeovim
+	ModNeovimPersonal  ModuleID = types.ModNeovimPersonal
+	ModNeovimFramework ModuleID = types.ModNeovimFramework
+	ModAtuin           ModuleID = types.ModAtuin
+	ModZoxide          ModuleID = types.ModZoxide
+	ModBat             ModuleID = types.ModBat
+	ModEza             ModuleID = types.ModEza
+	ModFd              ModuleID = types.ModFd
+	ModRipgrep         ModuleID = types.ModRipgrep
+	ModFzf             ModuleID = types.ModFzf
+	ModSd              ModuleID = types.ModSd
+	ModJq              ModuleID = types.ModJq
+	ModYq              ModuleID = types.ModYq
+	ModTldr            ModuleID = types.ModTldr
+	ModDelta           ModuleID = types.ModDelta
+	ModBottom          ModuleID = types.ModBottom
+	ModThefuck         ModuleID = types.ModThefuck
+	ModCarapace        ModuleID = types.ModCarapace
+	ModGlow            ModuleID = types.ModGlow
+	ModGh              ModuleID = types.ModGh
+	ModClipboard       ModuleID = types.ModClipboard
+	ModDocker          ModuleID = types.ModDocker
+	ModLazydocker      ModuleID = types.ModLazydocker
+	ModOpencode        ModuleID = types.ModOpencode
+	ModRtk             ModuleID = types.ModRtk
+	ModCaveman         ModuleID = types.ModCaveman
+	ModGentleAi        ModuleID = types.ModGentleAi
+	ModMcpConfig       ModuleID = types.ModMcpConfig
+	ModChezmoi         ModuleID = types.ModChezmoi
+	ModTheme           ModuleID = types.ModTheme
+	ModNerdFont        ModuleID = types.ModNerdFont
+	ModGhostty         ModuleID = types.ModGhostty
 )
 
 // Criticality indicates whether a module failure should stop the entire
 // installation (Critical) or be logged and continue (NonCritical).
-type Criticality string
+type Criticality = types.Criticality
 
 const (
-	Critical    Criticality = "critical"
-	NonCritical Criticality = "non-critical"
+	Critical    Criticality = types.Critical
+	NonCritical Criticality = types.NonCritical
 )
 
 // InstallStatus records the outcome of a module's installation attempt.
-type InstallStatus string
+type InstallStatus = types.InstallStatus
 
 const (
-	StatusInstalled               InstallStatus = "installed"
-	StatusSkipped                 InstallStatus = "skipped"
-	StatusSkippedDisabled         InstallStatus = "skipped-disabled"
-	StatusSkippedDependencyFailed InstallStatus = "skipped-dependency-failed"
-	StatusSkippedNoWayland        InstallStatus = "skipped-no-wayland"
-	StatusFailed                  InstallStatus = "failed"
+	StatusInstalled               InstallStatus = types.StatusInstalled
+	StatusSkipped                 InstallStatus = types.StatusSkipped
+	StatusSkippedDisabled         InstallStatus = types.StatusSkippedDisabled
+	StatusSkippedDependencyFailed InstallStatus = types.StatusSkippedDependencyFailed
+	StatusSkippedNoWayland        InstallStatus = types.StatusSkippedNoWayland
+	StatusFailed                  InstallStatus = types.StatusFailed
 )
 
 // Module is the interface every installable module must implement.
-//
-// Each module provides its identity, criticality, dependency graph,
-// an idempotence check (IsInstalled), the install operation itself,
-// and a string describing what version or value was installed.
-type Module interface {
-	// ID returns the stable module identifier (e.g. "M-01").
-	ID() ModuleID
+type Module = types.Module
 
-	// Name returns a human-readable module name (e.g. "Homebrew").
-	Name() string
-
-	// Criticality indicates whether a failure here stops the pipeline.
-	Criticality() Criticality
-
-	// Dependencies returns the ModuleIDs this module requires.
-	Dependencies() []ModuleID
-
-	// IsInstalled checks whether the tool is already present on the system.
-	IsInstalled(p platform.Platform) bool
-
-	// Install performs the module installation.
-	Install(ctx InstallContext) error
-
-	// AuditInfo returns a string representing the installed version,
-	// configuration name, or other identifying information for the audit log.
-	AuditInfo() string
-}
+// InstallContext bundles shared state for an entire install session.
+type InstallContext = types.InstallContext
