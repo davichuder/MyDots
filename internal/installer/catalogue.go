@@ -38,6 +38,29 @@ func criticalStub(id ModuleID, name string) Module {
 	return stubModule{id: id, name: name, critical: true}
 }
 
+// bindModule wraps a real module with a different ID and name.
+// Used when two catalogue entries share the same implementation
+// but need distinct identifiers (e.g., M-08 fnm + M-09 Node both
+// delegate to the same FnmNode module).
+func bindModule(inner Module, id ModuleID, name string) Module {
+	return moduleBinding{inner: inner, id: id, name: name}
+}
+
+// moduleBinding delegates all methods to the inner module except ID() and Name().
+type moduleBinding struct {
+	inner Module
+	id    ModuleID
+	name  string
+}
+
+func (b moduleBinding) ID() ModuleID                     { return b.id }
+func (b moduleBinding) Name() string                      { return b.name }
+func (b moduleBinding) Dependencies() []ModuleID          { return b.inner.Dependencies() }
+func (b moduleBinding) IsInstalled(p platform.Platform) bool { return b.inner.IsInstalled(p) }
+func (b moduleBinding) Install(ctx InstallContext) error  { return b.inner.Install(ctx) }
+func (b moduleBinding) AuditInfo() string                 { return b.inner.AuditInfo() }
+func (b moduleBinding) Criticality() Criticality          { return b.inner.Criticality() }
+
 // allModules returns all 48 modules in canonical execution order as defined
 // in specs.md §5 and design.md §5.1. This is a statically ordered list — not
 // a runtime topological sort. Dependencies() is used only by the executor
@@ -57,10 +80,10 @@ func allModules() []Module {
 		modules.Zsh,                                           // M-02
 		modules.OhMyZsh,                                       // M-03
 		BrewModule{id: ModZellij, name: "Zellij", formula: "zellij", checkCommand: "zellij", deps: []ModuleID{ModHomebrew}},           // M-04
-		stub(ModFnm, "Fnm"),                                   // M-08
-		stub(ModNode, "Node"),                                 // M-09
-		stub(ModUv, "Uv"),                                     // M-10
-		stub(ModPython, "Python"),                             // M-11
+		modules.FnmNode,                                         // M-08 — fnm + Node 24
+		bindModule(modules.FnmNode, ModNode, "Node"),            // M-09 — Node 24 (same impl, distinct ID)
+		modules.UvPython,                                        // M-10 — uv + Python 3.12
+		bindModule(modules.UvPython, ModPython, "Python"),       // M-11 — Python 3.12 (same impl, distinct ID)
 		BrewModule{id: ModGo, name: "Go", formula: "go", checkCommand: "go", deps: []ModuleID{ModHomebrew}},                          // M-12
 		modules.CppToolchain,                                   // M-13
 		stub(ModSdkman, "Sdkman"),                             // M-14

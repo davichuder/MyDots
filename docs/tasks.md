@@ -365,7 +365,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-047** Write failing tests for modules using runtime managers (`fnm_node.go` for M-08+M-09, `uv_python.go` for M-10+M-11):
+- [x] **T-047** Write failing tests for modules using runtime managers (`fnm_node.go` for M-08+M-09, `uv_python.go` for M-10+M-11):
   - Module constructor accepts a `RuntimeManager` — no import of concrete manager type
   - `Install()` delegates install and runtime installation to the injected manager
   - Mock manager returning error on `Install()` → module returns error
@@ -373,7 +373,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-048** Implement `fnm_node.go` and `uv_python.go`
+- [x] **T-048** Implement `fnm_node.go` and `uv_python.go`
 
 ---
 
