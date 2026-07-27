@@ -90,7 +90,7 @@ func allModules() []Module {
 		stub(ModJava, "Java"),                                 // M-15
 		stub(ModPhp, "PHP"),                                   // M-16
 		modules.Neovim,                                          // M-17
-		stub(ModNeovimPersonal, "Neovim Personal"),            // M-18
+		modules.NeovimPersonal,                                  // M-18
 		stub(ModNeovimFramework, "Neovim Framework"),          // M-19
 		stub(ModTheme, "Theme"),                               // M-46
 		BrewModule{id: ModAtuin, name: "atuin", formula: "atuin", checkCommand: "atuin", deps: []ModuleID{ModHomebrew}},             // M-20

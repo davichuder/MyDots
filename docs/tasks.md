@@ -393,14 +393,14 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-051** Write failing tests for `neovim_personal.go` (M-18):
+- [x] **T-051** Write failing tests for `neovim_personal.go` (M-18):
   - If M-45 (chezmoi) is in `failedIDs` → returns `StatusSkippedDependencyFailed` without calling chezmoi
   - Backs up `~/.config/nvim/` before `chezmoi apply`
   - `IsInstalled()` runs `chezmoi status` and checks for no diff output
 
 **[GREEN]**
 
-- [ ] **T-052** Implement `neovim_personal.go` (SC-09, SC-14)
+- [x] **T-052** Implement `neovim_personal.go` (SC-09, SC-14)
 
 **[RED]**
 
