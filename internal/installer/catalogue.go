@@ -89,7 +89,7 @@ func allModules() []Module {
 		stub(ModSdkman, "Sdkman"),                             // M-14
 		stub(ModJava, "Java"),                                 // M-15
 		stub(ModPhp, "PHP"),                                   // M-16
-		stub(ModNeovim, "Neovim"),                             // M-17
+		modules.Neovim,                                          // M-17
 		stub(ModNeovimPersonal, "Neovim Personal"),            // M-18
 		stub(ModNeovimFramework, "Neovim Framework"),          // M-19
 		stub(ModTheme, "Theme"),                               // M-46

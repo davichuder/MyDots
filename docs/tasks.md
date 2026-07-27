@@ -381,7 +381,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-049** Write failing tests for `neovim.go` (M-17):
+- [x] **T-049** Write failing tests for `neovim.go` (M-17):
   - `IsInstalled()` requires BOTH `which nvim` AND `~/.config/nvim/init.lua` to exist
   - Binary exists but `init.lua` missing: `Install()` applies config only, does not reinstall binary
   - `Install()` backs up `~/.config/nvim/` before writing config if the directory exists
@@ -389,7 +389,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-050** Implement `neovim.go`
+- [x] **T-050** Implement `neovim.go`
 
 **[RED]**
 
