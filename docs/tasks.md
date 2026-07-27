@@ -352,7 +352,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-045** Write failing tests for `FnmManager`, `UvManager`, `SdkmanManager`:
+- [x] **T-045** Write failing tests for `FnmManager`, `UvManager`, `SdkmanManager`:
   - Each satisfies `RuntimeManager` interface
   - `Install()` calls correct brew formula or curl-script (via mock runner)
   - `InstallRuntime(version)` calls the manager's install command with the given version string
@@ -361,7 +361,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-046** Implement `internal/runtime/fnm.go`, `uv.go`, `sdkman.go` (design.md §3.4)
+- [x] **T-046** Implement `internal/runtime/fnm.go`, `uv.go`, `sdkman.go` (design.md §3.4)
 
 **[RED]**
 

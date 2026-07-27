@@ -1,11 +1,9 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
-	"io/fs"
 	"os/exec"
 	"runtime"
 	"testing"
