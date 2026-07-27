@@ -62,7 +62,7 @@ func allModules() []Module {
 		stub(ModUv, "Uv"),                                     // M-10
 		stub(ModPython, "Python"),                             // M-11
 		BrewModule{id: ModGo, name: "Go", formula: "go", checkCommand: "go", deps: []ModuleID{ModHomebrew}},                          // M-12
-		stub(ModCppToolchain, "C++ Toolchain"),                // M-13
+		modules.CppToolchain,                                   // M-13
 		stub(ModSdkman, "Sdkman"),                             // M-14
 		stub(ModJava, "Java"),                                 // M-15
 		stub(ModPhp, "PHP"),                                   // M-16

@@ -335,7 +335,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-043** Write failing tests for `c_cpp.go` (M-13):
+- [x] **T-043** Write failing tests for `c_cpp.go` (M-13):
   - `IsInstalled()` on Darwin: checks `which clangd`
   - `IsInstalled()` on Ubuntu: checks `which gcc`
   - `Install()` on Darwin: calls `brew install gcc cmake llvm` — no `xcode-select` call (ADR-009)
@@ -344,7 +344,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-044** Implement `c_cpp.go`
+- [x] **T-044** Implement `c_cpp.go`
 
 ---
 
