@@ -307,7 +307,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-039** Write failing tests for `zsh.go` (M-02):
+- [x] **T-039** Write failing tests for `zsh.go` (M-02):
   - `IsInstalled()` checks `which zsh`
   - `Install()` on Ubuntu: brew install, then appends brew zsh path to `/etc/shells` only if not already present, then `chsh -s $(which zsh)`
   - `Install()` on Darwin: brew install + `chsh` only; no `/etc/shells` modification
@@ -316,18 +316,18 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-040** Implement `zsh.go`
+- [x] **T-040** Implement `zsh.go`
 
 **[RED]**
 
-- [ ] **T-041** Write failing tests for `oh_my_zsh.go` (M-03):
+- [x] **T-041** Write failing tests for `oh_my_zsh.go` (M-03):
   - `IsInstalled()` checks `~/.oh-my-zsh` directory exists
   - `Install()` runs omz-install.sh script with `RUNZSH=no CHSH=no` env vars set
   - Edge case: `~/.oh-my-zsh` exists but is empty → still treated as installed (directory check only)
 
 **[GREEN]**
 
-- [ ] **T-042** Implement `oh_my_zsh.go`
+- [x] **T-042** Implement `oh_my_zsh.go`
 
 ---
 
