@@ -521,14 +521,14 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-069** Write failing tests for `rtk.go` (M-41), `caveman.go` (M-42), `gentle_ai.go` (M-43):
+- [x] **T-069** Write failing tests for `rtk.go` (M-41), `caveman.go` (M-42), `gentle_ai.go` (M-43):
   - RTK: `Install()` calls `brew install rtk` then `rtk init` in sequence via shell-script; if first step fails, second step is not called
   - caveman: `Install()` runs `caveman-install.sh` script (mock)
   - gentle-ai: `Install()` calls `brew tap Gentleman-Programming/homebrew-tap` then `brew install gentle-ai`; tap failure returns error before install attempt
 
 **[GREEN]**
 
-- [ ] **T-070** Implement `rtk.go`, `caveman.go`, `gentle_ai.go`
+- [x] **T-070** Implement `rtk.go`, `caveman.go`, `gentle_ai.go`
 
 ---
 

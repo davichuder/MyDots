@@ -116,8 +116,8 @@ func allModules() []Module {
 		BrewModule{id: ModLazygit, name: "lazygit", formula: "lazygit", checkCommand: "lazygit", deps: []ModuleID{ModHomebrew}},       // M-07
 		BrewModule{id: ModOpencode, name: "opencode", formula: "opencode", checkCommand: "opencode", deps: []ModuleID{ModHomebrew}},   // M-40
 		modules.McpConfig,                                          // M-44
-		stub(ModRtk, "Rtk"),                                       // M-41
-		stub(ModCaveman, "Caveman"),                               // M-42
-		stub(ModGentleAi, "Gentle AI"),                            // M-43
+		modules.Rtk,                                               // M-41
+		modules.Caveman,                                           // M-42
+		modules.GentleAi,                                          // M-43
 	}
 }
