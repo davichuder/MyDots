@@ -44,5 +44,5 @@ sdk install java "$1"
 
 // AuditInfo returns the sdkman version string.
 func (s SdkmanManager) AuditInfo() string {
-	return runner.CaptureOutput("sdk", "version")
+	return runner.CaptureOutput("sh", "-c", ". \"$HOME/.sdkman/bin/sdkman-init.sh\"\nsdk version")
 }

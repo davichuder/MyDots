@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/davichuder/MyDots/internal/installer/types"
@@ -144,5 +145,32 @@ func TestJavaModule_AuditInfo(t *testing.T) {
 	m := NewJavaModule(mgr)
 	if got := m.AuditInfo(); got != "openjdk 25 2025-09-16" {
 		t.Errorf("AuditInfo() = %q, want %q", got, "openjdk 25 2025-09-16")
+	}
+}
+
+func TestJavaModuleSdkCommandBoundary(t *testing.T) {
+	tests := []struct {
+		name, output string
+		want         bool
+	}{
+		{"matching installed row", " 25.0.2-tem | installed | 25.0.2-tem\n", true},
+		{"version and installed marker on separate rows", " 25.0.2-tem | available |\n 21.0.4-tem | installed |\n", false},
+		{"different version local row", " 25.0.2-tem | available |\n 21.0.4-tem | local |\n", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var name string
+			var args []string
+			withMockExecutor(t, &mockExecutor{executeFunc: func(_ context.Context, gotName string, gotArgs ...string) ([]byte, error) {
+				name, args = gotName, append([]string(nil), gotArgs...)
+				return []byte(tt.output), nil
+			}})
+			if got := NewJavaModule(&mockRuntimeManager{}).IsInstalled(platform.Platform{}); got != tt.want {
+				t.Fatalf("IsInstalled() = %v, want %v", got, tt.want)
+			}
+			if name != "sh" || len(args) != 2 || args[0] != "-c" || !strings.Contains(args[1], `. "$HOME/.sdkman/bin/sdkman-init.sh"`) || !strings.Contains(args[1], "sdk list java") {
+				t.Fatalf("SDKMAN command = %q %q, want sh -c source-init-and-list", name, args)
+			}
+		})
 	}
 }

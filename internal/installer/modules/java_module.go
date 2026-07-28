@@ -49,8 +49,17 @@ func (m JavaModule) Dependencies() []types.ModuleID {
 // IsInstalled checks whether `sdk list java` output contains "25.*installed"
 // or "25.*local", indicating Java 25 is available via sdkman.
 func (m JavaModule) IsInstalled(_ platform.Platform) bool {
-	out := runner.CaptureOutput("sdk", "list", "java")
-	return strings.Contains(out, "25.") && (strings.Contains(out, "installed") || strings.Contains(out, "local"))
+	out := sdkmanOutput("sdk list java")
+	for _, row := range strings.Split(out, "\n") {
+		if strings.Contains(row, "25.") && (strings.Contains(row, "installed") || strings.Contains(row, "local")) {
+			return true
+		}
+	}
+	return false
+}
+
+func sdkmanOutput(command string) string {
+	return runner.CaptureOutput("sh", "-c", `. "$HOME/.sdkman/bin/sdkman-init.sh"`+"\n"+command)
 }
 
 // Install installs Java 25 (OpenJDK) via sdkman using InstallRuntime("25-open").

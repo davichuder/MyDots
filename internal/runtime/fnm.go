@@ -26,6 +26,11 @@ func (f FnmManager) InstallRuntime(ctx context.Context, version string, logw io.
 	return runner.Run(ctx, logw, "fnm", "install", version)
 }
 
+// SetDefaultRuntime selects a previously installed Node version as fnm's default.
+func (f FnmManager) SetDefaultRuntime(ctx context.Context, version string, logw io.Writer) error {
+	return runner.Run(ctx, logw, "fnm", "default", version)
+}
+
 // AuditInfo returns the fnm version string.
 func (f FnmManager) AuditInfo() string {
 	return runner.CaptureOutput("fnm", "--version")

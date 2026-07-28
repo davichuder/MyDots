@@ -1,58 +1,64 @@
 package modules
 
 import (
+	"context"
+	"io"
+	"regexp"
+	"strings"
+
+	"github.com/davichuder/MyDots/internal/installer/runner"
 	"github.com/davichuder/MyDots/internal/installer/types"
 	"github.com/davichuder/MyDots/internal/platform"
 	"github.com/davichuder/MyDots/internal/runtime"
 )
 
-// FnmNodeModule combines fnm installation (M-08) and Node 24 installation (M-09)
-// into a single module. It delegates to a runtime.RuntimeManager so the
-// orchestration logic is independent of the concrete manager implementation.
-type FnmNodeModule struct {
-	manager runtime.RuntimeManager
+var node24VersionLine = regexp.MustCompile(`^\s*(?:\*\s*)?v24\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]+)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]+))*)?(?:\+(?:[0-9A-Za-z-]+)(?:\.[0-9A-Za-z-]+)*)?(?:\s+\S.*)?\s*$`)
+
+type FnmModule struct{ manager runtime.RuntimeManager }
+
+var _ types.Module = FnmModule{}
+
+var Fnm types.Module = NewFnmModule(runtime.FnmManager{})
+
+func NewFnmModule(manager runtime.RuntimeManager) FnmModule { return FnmModule{manager: manager} }
+func (m FnmModule) ID() types.ModuleID                      { return types.ModFnm }
+func (m FnmModule) Name() string                            { return "Fnm" }
+func (m FnmModule) Criticality() types.Criticality          { return types.NonCritical }
+func (m FnmModule) Dependencies() []types.ModuleID          { return []types.ModuleID{types.ModHomebrew} }
+func (m FnmModule) IsInstalled(_ platform.Platform) bool    { return m.manager.IsInstalled() }
+func (m FnmModule) Install(ctx types.InstallContext) error {
+	return m.manager.Install(ctx.Cancel, ctx.Log, ctx.Assets)
+}
+func (m FnmModule) AuditInfo() string { return m.manager.AuditInfo() }
+
+type nodeRuntimeManager interface {
+	runtime.RuntimeManager
+	SetDefaultRuntime(context.Context, string, io.Writer) error
 }
 
-// Compile-time interface check.
-var _ types.Module = FnmNodeModule{}
+type NodeModule struct{ manager nodeRuntimeManager }
 
-// FnmNode is the exported package-level instance used by the catalogue.
-var FnmNode types.Module = FnmNodeModule{manager: runtime.FnmManager{}}
+var _ types.Module = NodeModule{}
 
-// NewFnmNodeModule creates a new FnmNodeModule with the given manager.
-// Used by tests to inject a mock RuntimeManager.
-func NewFnmNodeModule(manager runtime.RuntimeManager) FnmNodeModule {
-	return FnmNodeModule{manager: manager}
+var Node types.Module = NewNodeModule(runtime.FnmManager{})
+
+func NewNodeModule(manager nodeRuntimeManager) NodeModule { return NodeModule{manager: manager} }
+func (m NodeModule) ID() types.ModuleID                   { return types.ModNode }
+func (m NodeModule) Name() string                         { return "Node 24" }
+func (m NodeModule) Criticality() types.Criticality       { return types.NonCritical }
+func (m NodeModule) Dependencies() []types.ModuleID       { return []types.ModuleID{types.ModFnm} }
+func (m NodeModule) IsInstalled(_ platform.Platform) bool {
+	for _, line := range strings.Split(runner.CaptureOutput("fnm", "list"), "\n") {
+		if node24VersionLine.MatchString(line) {
+			return true
+		}
+	}
+	return false
 }
-
-// ID returns the stable module identifier M-08 (fnm).
-func (m FnmNodeModule) ID() types.ModuleID { return types.ModFnm }
-
-// Name returns a human-readable module name.
-func (m FnmNodeModule) Name() string { return "Fnm" }
-
-// Criticality returns NonCritical — fnm/Node failure does not stop the pipeline.
-func (m FnmNodeModule) Criticality() types.Criticality { return types.NonCritical }
-
-// Dependencies returns Homebrew as a dependency (fnm is installed via brew).
-func (m FnmNodeModule) Dependencies() []types.ModuleID {
-	return []types.ModuleID{types.ModHomebrew}
-}
-
-// IsInstalled delegates to the runtime manager's idempotence check.
-func (m FnmNodeModule) IsInstalled(_ platform.Platform) bool {
-	return m.manager.IsInstalled()
-}
-
-// Install installs fnm via Homebrew and then installs Node 24.
-func (m FnmNodeModule) Install(ctx types.InstallContext) error {
-	if err := m.manager.Install(ctx.Cancel, ctx.Log, ctx.Assets); err != nil {
+func (m NodeModule) Install(ctx types.InstallContext) error {
+	if err := m.manager.InstallRuntime(ctx.Cancel, "24", ctx.Log); err != nil {
 		return err
 	}
-	return m.manager.InstallRuntime(ctx.Cancel, "24", ctx.Log)
+	return m.manager.SetDefaultRuntime(ctx.Cancel, "24", ctx.Log)
 }
-
-// AuditInfo delegates to the runtime manager's version reporting.
-func (m FnmNodeModule) AuditInfo() string {
-	return m.manager.AuditInfo()
-}
+func (m NodeModule) AuditInfo() string { return runner.CaptureOutput("node", "--version") }

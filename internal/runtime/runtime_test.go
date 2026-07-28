@@ -398,8 +398,11 @@ func TestSdkmanManager_InstallRuntime(t *testing.T) {
 }
 
 func TestSdkmanManager_AuditInfo(t *testing.T) {
+	var gotName string
+	var gotArgs []string
 	withMockExecutor(t, &mockExecutor{
 		executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			gotName, gotArgs = name, append([]string(nil), args...)
 			return []byte("sdk 5.0.0\n"), nil
 		},
 	})
@@ -407,5 +410,8 @@ func TestSdkmanManager_AuditInfo(t *testing.T) {
 	got := m.AuditInfo()
 	if got != "sdk 5.0.0" {
 		t.Errorf("AuditInfo() = %q, want %q", got, "sdk 5.0.0")
+	}
+	if gotName != "sh" || len(gotArgs) != 2 || gotArgs[0] != "-c" || !strings.Contains(gotArgs[1], `. "$HOME/.sdkman/bin/sdkman-init.sh"`) || !strings.Contains(gotArgs[1], "sdk version") {
+		t.Fatalf("AuditInfo command = %q %q, want sh -c source-init-and-sdk-version", gotName, gotArgs)
 	}
 }
