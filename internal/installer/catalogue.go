@@ -110,7 +110,7 @@ func allModules() []Module {
 		BrewModule{id: ModCarapace, name: "carapace", formula: "carapace", checkCommand: "carapace", deps: []ModuleID{ModHomebrew}},    // M-34
 		BrewModule{id: ModGlow, name: "glow", formula: "glow", checkCommand: "glow", deps: []ModuleID{ModHomebrew}},                   // M-35
 		BrewModule{id: ModGh, name: "gh", formula: "gh", checkCommand: "gh", deps: []ModuleID{ModHomebrew}},                           // M-36
-		stub(ModClipboard, "Clipboard"),                           // M-37
+		modules.Clipboard,                                          // M-37
 		stub(ModDocker, "Docker"),                                 // M-38
 		BrewModule{id: ModLazydocker, name: "lazydocker", formula: "lazydocker", checkCommand: "lazydocker", deps: []ModuleID{ModHomebrew}}, // M-39
 		BrewModule{id: ModLazygit, name: "lazygit", formula: "lazygit", checkCommand: "lazygit", deps: []ModuleID{ModHomebrew}},       // M-07

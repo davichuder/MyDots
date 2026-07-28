@@ -421,7 +421,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-055** Write failing tests for `clipboard.go` (M-37) — all 5 paths must be covered:
+- [x] **T-055** Write failing tests for `clipboard.go` (M-37) — all 5 paths must be covered:
   - Darwin: `IsInstalled()` always true; `Install()` is a no-op
   - Ubuntu native + `$WAYLAND_DISPLAY` set: installs `wl-clipboard` via brew
   - Ubuntu native + `$WAYLAND_DISPLAY` not set: installs `xclip` via brew (X11 fallback, NFR-12)
@@ -430,7 +430,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-056** Implement `clipboard.go` (NFR-12)
+- [x] **T-056** Implement `clipboard.go` (NFR-12)
 
 **[RED]**
 
