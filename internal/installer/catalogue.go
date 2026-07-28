@@ -92,7 +92,7 @@ func allModules() []Module {
 		modules.Neovim,                                          // M-17
 		modules.NeovimPersonal,                                  // M-18
 		modules.NeovimFramework,                                 // M-19
-		stub(ModTheme, "Theme"),                               // M-46
+		modules.Theme,                                           // M-46
 		BrewModule{id: ModAtuin, name: "atuin", formula: "atuin", checkCommand: "atuin", deps: []ModuleID{ModHomebrew}},             // M-20
 		BrewModule{id: ModZoxide, name: "zoxide", formula: "zoxide", checkCommand: "zoxide", deps: []ModuleID{ModHomebrew}},          // M-21
 		BrewModule{id: ModBat, name: "bat", formula: "bat", checkCommand: "bat", deps: []ModuleID{ModHomebrew}},                      // M-22

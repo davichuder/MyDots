@@ -463,7 +463,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-061** Write failing tests for `theme.go` (M-46):
+- [x] **T-061** Write failing tests for `theme.go` (M-46):
   - Theme written to all 4 config files (nvim, zsh, zellij, ghostty)
   - Uses `# MYDOTS_THEME_START / END` markers — content between markers is replaced, not appended
   - First run: markers and theme content are inserted
@@ -475,7 +475,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-062** Implement `theme.go` (SC-15)
+- [x] **T-062** Implement `theme.go` (SC-15)
 
 **[RED]**
 
