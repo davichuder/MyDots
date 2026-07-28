@@ -491,7 +491,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-065** Write failing tests for `mcp_config.go` (M-44):
+- [x] **T-065** Write failing tests for `mcp_config.go` (M-44):
   - Writes all 6 MCP entries when `opencode.json` does not exist
   - Merges entries into existing `opencode.json` — existing unmanaged keys (e.g., `"theme"`) are preserved
   - Creates `~/.config/opencode/` directory if missing
@@ -501,7 +501,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-066** Implement `mcp_config.go`
+- [x] **T-066** Implement `mcp_config.go`
 
 **[RED]**
 
