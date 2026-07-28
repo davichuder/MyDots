@@ -1,11 +1,13 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -333,41 +335,64 @@ func TestSdkmanManager_Install(t *testing.T) {
 
 func TestSdkmanManager_InstallRuntime(t *testing.T) {
 	t.Run("version 25-open", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var gotName string
+		var gotArgs []string
+		var gotCtx context.Context
 		withMockExecutor(t, &mockExecutor{
-			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
-				return nil, nil
+			executeFunc: func(commandCtx context.Context, name string, args ...string) ([]byte, error) {
+				gotCtx = commandCtx
+				gotName = name
+				gotArgs = append([]string(nil), args...)
+				return []byte("Installing: java 25-open\n"), nil
 			},
 		})
 		m := SdkmanManager{}
-		err := m.InstallRuntime(context.Background(), "25-open", io.Discard)
+		var log bytes.Buffer
+		err := m.InstallRuntime(ctx, "25-open", &log)
 		if err != nil {
 			t.Errorf("InstallRuntime(25-open) = %v, want nil", err)
 		}
-	})
-
-	t.Run("version 21-open", func(t *testing.T) {
-		withMockExecutor(t, &mockExecutor{
-			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
-				return nil, nil
-			},
-		})
-		m := SdkmanManager{}
-		err := m.InstallRuntime(context.Background(), "21-open", io.Discard)
-		if err != nil {
-			t.Errorf("InstallRuntime(21-open) = %v, want nil", err)
+		if gotCtx != ctx {
+			t.Error("InstallRuntime() did not pass its context to the command runner")
+		}
+		if gotName != "sh" {
+			t.Errorf("command = %q, want sh", gotName)
+		}
+		if len(gotArgs) != 4 || gotArgs[0] != "-c" || gotArgs[2] != "sh" || gotArgs[3] != "25-open" {
+			t.Fatalf("command args = %#v, want sh -c <script> sh 25-open", gotArgs)
+		}
+		if !strings.Contains(gotArgs[1], `. "$HOME/.sdkman/bin/sdkman-init.sh"`) {
+			t.Errorf("shell command = %q, want SDKMAN init script to be sourced", gotArgs[1])
+		}
+		if !strings.Contains(gotArgs[1], `sdk install java "$1"`) {
+			t.Errorf("shell command = %q, want sdk install command", gotArgs[1])
+		}
+		if got, want := log.String(), "Installing: java 25-open\n"; got != want {
+			t.Errorf("log = %q, want %q", got, want)
 		}
 	})
 
 	t.Run("sdk install fails returns error", func(t *testing.T) {
+		wantErr := errors.New("sdk install failed")
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
-				return nil, errors.New("sdk install failed")
+				if name != "sh" {
+					t.Errorf("command = %q, want sh", name)
+				}
+				return []byte("sdk install failed\n"), wantErr
 			},
 		})
 		m := SdkmanManager{}
-		err := m.InstallRuntime(context.Background(), "25-open", io.Discard)
-		if err == nil {
-			t.Error("expected error, got nil")
+		var log bytes.Buffer
+		err := m.InstallRuntime(context.Background(), "25-open", &log)
+		if !errors.Is(err, wantErr) {
+			t.Errorf("InstallRuntime() = %v, want %v", err, wantErr)
+		}
+		if got, want := log.String(), "sdk install failed\n"; got != want {
+			t.Errorf("log = %q, want %q", got, want)
 		}
 	})
 }

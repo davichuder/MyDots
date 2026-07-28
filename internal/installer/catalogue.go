@@ -86,9 +86,9 @@ func allModules() []Module {
 		bindModule(modules.UvPython, ModPython, "Python"),       // M-11 — Python 3.12 (same impl, distinct ID)
 		BrewModule{id: ModGo, name: "Go", formula: "go", checkCommand: "go", deps: []ModuleID{ModHomebrew}},                          // M-12
 		modules.CppToolchain,                                   // M-13
-		stub(ModSdkman, "Sdkman"),                             // M-14
-		stub(ModJava, "Java"),                                 // M-15
-		stub(ModPhp, "PHP"),                                   // M-16
+		modules.Sdkman,                                          // M-14
+		modules.Java,                                           // M-15
+		modules.Php,                                            // M-16
 		modules.Neovim,                                          // M-17
 		modules.NeovimPersonal,                                  // M-18
 		modules.NeovimFramework,                                 // M-19

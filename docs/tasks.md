@@ -536,15 +536,15 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-071** Write failing tests for `sdkman.go` (M-14), `java.go` (M-15), `php.go` (M-16):
-  - sdkman: runs `sdkman-install.sh` curl-script; `IsInstalled()` checks `~/.sdkman` directory exists and contains a `bin/sdkman-init.sh` file
+- [x] **T-071** Write failing tests for `sdkman_module.go` (M-14), `java_module.go` (M-15), `php_module.go` (M-16):
+  - sdkman: runs `sdkman-install.sh` curl-script; `IsInstalled()` checks `~/.sdkman/bin/sdkman-init.sh` file
   - java: calls `SdkmanManager.InstallRuntime("25-open")`; `IsInstalled()` checks `sdk list java` output contains `25.*installed`
   - php: simple brew install; `IsInstalled()` checks `which php`
   - All three: only enqueued when corresponding config flag is true
 
 **[GREEN]**
 
-- [ ] **T-072** Implement `sdkman.go`, `java.go`, `php.go`
+- [x] **T-072** Implement `sdkman_module.go`, `java_module.go`, `php_module.go`
 
 ---
 

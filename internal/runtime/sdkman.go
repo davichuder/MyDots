@@ -35,7 +35,11 @@ func (s SdkmanManager) IsInstalled() bool {
 
 // InstallRuntime installs a specific Java version via sdkman.
 func (s SdkmanManager) InstallRuntime(ctx context.Context, version string, logw io.Writer) error {
-	return runner.Run(ctx, logw, "sdk", "install", "java", version)
+	return runner.Run(ctx, logw, "sh", "-c", `
+set -e
+. "$HOME/.sdkman/bin/sdkman-init.sh"
+sdk install java "$1"
+`, "sh", version)
 }
 
 // AuditInfo returns the sdkman version string.
