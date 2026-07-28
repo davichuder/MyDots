@@ -479,7 +479,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-063** Write failing tests for `nerd_font.go` (M-47):
+- [x] **T-063** Write failing tests for `nerd_font.go` (M-47):
   - Darwin: `brew install --cask font-<name>-nerd-font` — correct cask name per font (triangulation: all 5 fonts)
   - Ubuntu: runs `font-linux.sh` with `FONT_NAME` env var set to the correct zip filename
   - Post-install on both platforms: Ghostty config updated with `font-family = <Name> Nerd Font` using idempotent marker
@@ -487,7 +487,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-064** Implement `nerd_font.go` (ADR-010)
+- [x] **T-064** Implement `nerd_font.go` (ADR-010)
 
 **[RED]**
 

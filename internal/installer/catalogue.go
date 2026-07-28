@@ -73,7 +73,7 @@ func allModules() []Module {
 	return []Module{
 		modules.Homebrew,                                      // M-01 — CRITICAL
 		modules.Ghostty,                                         // M-48
-		stub(ModNerdFont, "Nerd Font"),                        // M-47
+		modules.NerdFont,                                        // M-47
 		stub(ModGit, "Git"),                                   // M-05
 		stub(ModGitCredOAuth, "Git Credential OAuth"),         // M-06
 		stub(ModChezmoi, "Chezmoi"),                           // M-45
