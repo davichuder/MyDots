@@ -505,7 +505,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-067** Write failing tests for `chezmoi.go` (M-45):
+- [x] **T-067** Write failing tests for `chezmoi.go` (M-45):
   - `IsInstalled()` requires binary AND `~/.local/share/chezmoi` directory containing a git repo
   - `Install()` sequence: brew install → `chezmoi init <repo_url>` → `chezmoi apply`
   - `repo_url` is read from `ctx.Config.Chezmoi.RepoURL`
@@ -513,7 +513,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-068** Implement `chezmoi.go`
+- [x] **T-068** Implement `chezmoi.go`
 
 ---
 

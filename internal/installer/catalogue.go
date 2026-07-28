@@ -76,7 +76,7 @@ func allModules() []Module {
 		modules.NerdFont,                                        // M-47
 		stub(ModGit, "Git"),                                   // M-05
 		stub(ModGitCredOAuth, "Git Credential OAuth"),         // M-06
-		stub(ModChezmoi, "Chezmoi"),                           // M-45
+		modules.Chezmoi,                                         // M-45
 		modules.Zsh,                                           // M-02
 		modules.OhMyZsh,                                       // M-03
 		BrewModule{id: ModZellij, name: "Zellij", formula: "zellij", checkCommand: "zellij", deps: []ModuleID{ModHomebrew}},           // M-04
