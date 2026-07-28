@@ -434,7 +434,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-057** Write failing tests for `docker.go` (M-38):
+- [x] **T-057** Write failing tests for `docker.go` (M-38):
   - Darwin: calls `brew install --cask docker-desktop`
   - Ubuntu native: runs `docker-linux.sh` script (mock)
   - WSL2 + systemd active (`systemctl is-system-running` returns 0): runs `docker-linux.sh` script
@@ -443,7 +443,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-058** Implement `docker.go` (ADR-006, NFR-13)
+- [x] **T-058** Implement `docker.go` (ADR-006, NFR-13)
 
 **[RED]**
 
