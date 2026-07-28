@@ -6,6 +6,8 @@ import (
 	"embed"
 	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -274,8 +276,8 @@ func TestBrewCask(t *testing.T) {
 		if capturedName != "brew" {
 			t.Errorf("expected command 'brew', got: %q", capturedName)
 		}
-		if len(capturedArgs) != 2 || capturedArgs[0] != "--cask" || capturedArgs[1] != "ghostty" {
-			t.Errorf("expected args ['--cask', 'ghostty'], got: %v", capturedArgs)
+		if len(capturedArgs) != 3 || capturedArgs[0] != "install" || capturedArgs[1] != "--cask" || capturedArgs[2] != "ghostty" {
+			t.Errorf("expected args ['install', '--cask', 'ghostty'], got: %v", capturedArgs)
 		}
 	})
 
@@ -400,4 +402,134 @@ func TestScript(t *testing.T) {
 			t.Errorf("expected output to end with 'MYVAR=testvalue', got: %q", output)
 		}
 	})
+}
+
+func TestShippedInstallerScriptsRunUnderPOSIXSh(t *testing.T) {
+	binDir := t.TempDir()
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '%s\\n' 'echo downloaded-installer-ran'\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\neval \"$(cat \"$1\")\"\n")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	scripts := []string{
+		"assets/scripts/homebrew-install.sh",
+		"assets/scripts/omz-install.sh",
+		"assets/scripts/sdkman-install.sh",
+	}
+	for _, script := range scripts {
+		t.Run(script, func(t *testing.T) {
+			log, err := runPOSIXScript(t, script, binDir)
+			if err != nil {
+				t.Fatalf("script %q = %v, want nil; output: %s", script, err, log)
+			}
+			if !strings.Contains(log, "installation complete") {
+				t.Errorf("script %q output = %q, want completion message", script, log)
+			}
+			if !strings.Contains(log, "downloaded-installer-ran") {
+				t.Errorf("script %q output = %q, want downloaded installer execution", script, log)
+			}
+		})
+	}
+}
+
+func TestShippedInstallerScriptsReturnDownloadFailure(t *testing.T) {
+	binDir := t.TempDir()
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")
+
+	scripts := []string{
+		"assets/scripts/homebrew-install.sh",
+		"assets/scripts/omz-install.sh",
+		"assets/scripts/sdkman-install.sh",
+	}
+	for _, script := range scripts {
+		t.Run(script, func(t *testing.T) {
+			log, err := runPOSIXScript(t, script, binDir)
+			if err == nil {
+				t.Fatalf("script %q returned nil after the download failed", script)
+			}
+			if strings.Contains(log, "installation complete") {
+				t.Errorf("script %q output = %q, must not report successful installation", script, log)
+			}
+		})
+	}
+}
+
+func TestShippedCavemanScriptReturnsDownloadFailure(t *testing.T) {
+	binDir := t.TempDir()
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")
+
+	log, err := runPOSIXScript(t, "assets/scripts/caveman-install.sh", binDir)
+	if err == nil {
+		t.Fatal("caveman script returned nil after the download failed")
+	}
+	if strings.Contains(log, "Caveman installation complete") {
+		t.Errorf("caveman script output = %q, must not report successful installation", log)
+	}
+}
+
+func TestShippedCavemanScriptRunsDownloadedInstallerWithOpenclawOnly(t *testing.T) {
+	binDir := t.TempDir()
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\ncat <<'EOF'\n#!/bin/sh\nif [ \"$1\" = \"--only\" ] && [ \"$2\" = \"openclaw\" ]; then\n    echo caveman-installer-ran\nelse\n    exit 9\nfi\nEOF\n")
+
+	log, err := runPOSIXScript(t, "assets/scripts/caveman-install.sh", binDir)
+	if err != nil {
+		t.Fatalf("caveman script = %v, want nil; output: %s", err, log)
+	}
+	if !strings.Contains(log, "caveman-installer-ran") {
+		t.Errorf("caveman script output = %q, want downloaded installer output", log)
+	}
+	if !strings.Contains(log, "Caveman installation complete") {
+		t.Errorf("caveman script output = %q, want completion message", log)
+	}
+}
+
+func writeScriptStub(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0700); err != nil {
+		t.Fatalf("WriteFile(%q): %v", path, err)
+	}
+}
+
+func runPOSIXScript(t *testing.T, script, binDir string) (string, error) {
+	t.Helper()
+	repoRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("Abs repository root: %v", err)
+	}
+
+	cmd := exec.Command(posixShell(t), filepath.Join(repoRoot, script))
+	cmd.Env = replaceEnv(os.Environ(), "PATH", scriptTestPath(binDir))
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func posixShell(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return "/bin/sh"
+	}
+
+	gitDash := filepath.Join(os.Getenv("ProgramFiles"), "Git", "usr", "bin", "dash.exe")
+	if _, err := os.Stat(gitDash); err != nil {
+		t.Fatalf("Git POSIX dash is required for shipped-script tests: %v", err)
+	}
+	return gitDash
+}
+
+func scriptTestPath(binDir string) string {
+	path := binDir + string(os.PathListSeparator)
+	if runtime.GOOS == "windows" {
+		path += filepath.Join(os.Getenv("ProgramFiles"), "Git", "bin") + string(os.PathListSeparator)
+	}
+	return path + os.Getenv("PATH")
+}
+
+func replaceEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	replaced := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			replaced = append(replaced, entry)
+		}
+	}
+	return append(replaced, prefix+value)
 }

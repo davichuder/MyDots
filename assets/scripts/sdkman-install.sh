@@ -6,9 +6,17 @@
 #
 # https://sdkman.io
 
-set -euo pipefail
+set -eu
 
 echo "==> Downloading SDKMAN install script..."
-curl -fsSL "https://get.sdkman.io" | bash
+install_script=$(mktemp)
+trap 'rm -f "$install_script"' 0 1 2 15
+
+if ! curl -fsSL "https://get.sdkman.io" >"$install_script"; then
+    echo "Error: failed to download the SDKMAN installer." >&2
+    exit 1
+fi
+
+bash "$install_script"
 
 echo "==> SDKMAN installation complete"

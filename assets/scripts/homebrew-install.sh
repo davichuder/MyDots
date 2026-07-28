@@ -6,9 +6,17 @@
 #
 # https://brew.sh
 
-set -euo pipefail
+set -eu
 
 echo "==> Downloading Homebrew install script..."
-NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+install_script=$(mktemp)
+trap 'rm -f "$install_script"' 0 1 2 15
+
+if ! curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh >"$install_script"; then
+    echo "Error: failed to download the Homebrew installer." >&2
+    exit 1
+fi
+
+NONINTERACTIVE=1 /bin/bash "$install_script"
 
 echo "==> Homebrew installation complete"

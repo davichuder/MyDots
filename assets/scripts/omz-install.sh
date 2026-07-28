@@ -6,9 +6,17 @@
 #
 # https://ohmyz.sh
 
-set -euo pipefail
+set -eu
 
 echo "==> Downloading Oh My Zsh install script..."
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+install_script=$(mktemp)
+trap 'rm -f "$install_script"' 0 1 2 15
+
+if ! curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh >"$install_script"; then
+    echo "Error: failed to download the Oh My Zsh installer." >&2
+    exit 1
+fi
+
+sh "$install_script"
 
 echo "==> Oh My Zsh installation complete"

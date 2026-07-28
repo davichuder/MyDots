@@ -86,7 +86,7 @@ func BrewCask(ctx context.Context, logw io.Writer, p platform.Platform, caskName
 	if p.OS != platform.Darwin {
 		return ErrNotDarwin
 	}
-	return Run(ctx, logw, "brew", "--cask", caskName)
+	return Run(ctx, logw, "brew", "install", "--cask", caskName)
 }
 
 // BrewTap taps a Homebrew tap and installs the formula in two steps:

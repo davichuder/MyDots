@@ -9,6 +9,14 @@
 set -eu
 
 echo "==> Installing caveman (openclaw only)..."
-curl -fsSL "https://caveman.sh/install" | sh -s -- --only openclaw
+install_script=$(mktemp)
+trap 'rm -f "$install_script"' 0 1 2 15
+
+if ! curl -fsSL "https://caveman.sh/install" >"$install_script"; then
+    echo "Error: failed to download the Caveman installer." >&2
+    exit 1
+fi
+
+sh "$install_script" --only openclaw
 
 echo "==> Caveman installation complete"
