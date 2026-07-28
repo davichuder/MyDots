@@ -91,7 +91,7 @@ func allModules() []Module {
 		stub(ModPhp, "PHP"),                                   // M-16
 		modules.Neovim,                                          // M-17
 		modules.NeovimPersonal,                                  // M-18
-		stub(ModNeovimFramework, "Neovim Framework"),          // M-19
+		modules.NeovimFramework,                                 // M-19
 		stub(ModTheme, "Theme"),                               // M-46
 		BrewModule{id: ModAtuin, name: "atuin", formula: "atuin", checkCommand: "atuin", deps: []ModuleID{ModHomebrew}},             // M-20
 		BrewModule{id: ModZoxide, name: "zoxide", formula: "zoxide", checkCommand: "zoxide", deps: []ModuleID{ModHomebrew}},          // M-21

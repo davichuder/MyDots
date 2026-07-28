@@ -404,7 +404,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-053** Write failing tests for `neovim_framework.go` (M-19):
+- [x] **T-053** Write failing tests for `neovim_framework.go` (M-19):
   - `IsInstalled()` checks `~/.config/nvim-<framework>` directory exists
   - `Install()` clones the correct repo URL for each of the 5 frameworks (triangulation)
   - Alias is appended to `~/.zshrc` in correct format: `alias <name>='NVIM_APPNAME=nvim-<name> nvim'`
@@ -413,7 +413,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-054** Implement `neovim_framework.go` (SC-10)
+- [x] **T-054** Implement `neovim_framework.go` (SC-10)
 
 ---
 
