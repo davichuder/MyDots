@@ -447,7 +447,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-059** Write failing tests for `ghostty.go` (M-48):
+- [x] **T-059** Write failing tests for `ghostty.go` (M-48):
   - Darwin: `brew install --cask ghostty`
   - Ubuntu native: runs `ghostty-linux.sh` script (mock)
   - WSL2 + `$WAYLAND_DISPLAY` set: runs `ghostty-linux.sh` (WSLg provides display)
@@ -455,7 +455,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-060** Implement `ghostty.go`
+- [x] **T-060** Implement `ghostty.go`
 
 ---
 
