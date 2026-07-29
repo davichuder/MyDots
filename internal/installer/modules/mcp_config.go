@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 
+	"github.com/davichuder/MyDots/internal/backup"
 	"github.com/davichuder/MyDots/internal/installer/types"
 	"github.com/davichuder/MyDots/internal/platform"
 )
@@ -16,8 +18,9 @@ import (
 
 var mcpHomeDir = os.UserHomeDir
 var mcpReadFile = os.ReadFile
-var mcpWriteFile = os.WriteFile
+var mcpWriteFile = atomicWriteFile
 var mcpMkdirAll = os.MkdirAll
+var mcpBackupFile = backup.BackupFile
 
 // ---------------------------------------------------------------------------
 // MCP server definitions
@@ -103,8 +106,7 @@ func (m McpConfigModule) Dependencies() []types.ModuleID {
 	return []types.ModuleID{types.ModOpencode}
 }
 
-// IsInstalled checks whether all 6 managed MCP keys exist in the mcp object
-// of ~/.config/opencode/opencode.json.
+// IsInstalled checks whether each managed MCP entry has its required value.
 func (m McpConfigModule) IsInstalled(_ platform.Platform) bool {
 	home, err := mcpHomeDir()
 	if err != nil {
@@ -133,12 +135,23 @@ func (m McpConfigModule) IsInstalled(_ platform.Platform) bool {
 	}
 
 	for _, key := range managedMcpKeys {
-		if _, exists := mcpObj[key]; !exists {
+		if entry, exists := mcpObj[key]; !exists || !mcpEntryMatches(entry, defaultMcpServers[key]) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// mcpEntryMatches compares the full managed JSON value. Install replaces each
+// managed entry wholesale, while preserving only unmanaged root and MCP keys.
+func mcpEntryMatches(actual json.RawMessage, desired mcpServerEntry) bool {
+	var actualValue, desiredValue interface{}
+	desiredJSON, err := json.Marshal(desired)
+	if err != nil || json.Unmarshal(actual, &actualValue) != nil || json.Unmarshal(desiredJSON, &desiredValue) != nil {
+		return false
+	}
+	return reflect.DeepEqual(actualValue, desiredValue)
 }
 
 // Install writes or merges the 6 managed MCP server entries into
@@ -155,6 +168,7 @@ func (m McpConfigModule) Install(ctx types.InstallContext) error {
 	// Parse existing config — if file doesn't exist, start fresh.
 	var root map[string]interface{}
 	data, readErr := mcpReadFile(opencodeFile)
+	exists := readErr == nil
 	if readErr == nil {
 		if err := json.Unmarshal(data, &root); err != nil {
 			return fmt.Errorf("malformed opencode.json: %w", err)
@@ -195,7 +209,15 @@ func (m McpConfigModule) Install(ctx types.InstallContext) error {
 		return fmt.Errorf("marshal opencode.json: %w", err)
 	}
 
-	return mcpWriteFile(opencodeFile, out, 0644)
+	if exists {
+		if err := mcpBackupFile(opencodeFile, ctx.SessionTimestamp); err != nil {
+			return fmt.Errorf("backup opencode.json: %w", err)
+		}
+	}
+	if err := mcpWriteFile(opencodeFile, out, 0644); err != nil {
+		return fmt.Errorf("write opencode.json: %w", err)
+	}
+	return nil
 }
 
 // AuditInfo returns "config" as the version identifier for MCP config.

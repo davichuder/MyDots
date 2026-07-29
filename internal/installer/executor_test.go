@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davichuder/MyDots/internal/config"
 	"github.com/davichuder/MyDots/internal/platform"
 )
 
@@ -23,13 +24,22 @@ type testModule struct {
 	auditInfo   string
 }
 
-func (m *testModule) ID() ModuleID                  { return m.id }
-func (m *testModule) Name() string                   { return m.name }
-func (m *testModule) Criticality() Criticality       { return m.criticality }
-func (m *testModule) Dependencies() []ModuleID       { return m.deps }
+func (m *testModule) ID() ModuleID                       { return m.id }
+func (m *testModule) Name() string                       { return m.name }
+func (m *testModule) Criticality() Criticality           { return m.criticality }
+func (m *testModule) Dependencies() []ModuleID           { return m.deps }
 func (m *testModule) IsInstalled(platform.Platform) bool { return m.installed }
-func (m *testModule) Install(InstallContext) error   { return m.installErr }
-func (m *testModule) AuditInfo() string              { return m.auditInfo }
+func (m *testModule) Install(InstallContext) error       { return m.installErr }
+func (m *testModule) AuditInfo() string                  { return m.auditInfo }
+
+type configuredTestModule struct {
+	testModule
+	installedForConfig bool
+}
+
+func (m *configuredTestModule) IsInstalledForConfig(platform.Platform, config.Config) bool {
+	return m.installedForConfig
+}
 
 // collectEvents runs the executor on the given plan and returns all events
 // received from the channel, in order.
@@ -93,7 +103,7 @@ func TestRun_NonCriticalFails(t *testing.T) {
 	assertEvent(t, events[0], "M-01", "running", false)
 	assertEvent(t, events[1], "M-01", StatusInstalled, false)
 	assertEvent(t, events[2], "M-02", "running", false)
-	assertEvent(t, events[3], "M-02", StatusFailed, true)   // has error
+	assertEvent(t, events[3], "M-02", StatusFailed, true) // has error
 	assertEvent(t, events[4], "M-03", "running", false)
 	assertEvent(t, events[5], "M-03", StatusInstalled, false)
 }
@@ -131,6 +141,20 @@ func TestRun_AlreadyInstalled(t *testing.T) {
 	assertEvent(t, events[0], "M-01", StatusSkipped, false)
 	assertEvent(t, events[1], "M-02", "running", false)
 	assertEvent(t, events[2], "M-02", StatusInstalled, false)
+}
+
+func TestRun_ConfiguredModuleReconcilesStaleState(t *testing.T) {
+	module := &configuredTestModule{
+		testModule:         testModule{id: "M-46", name: "Theme", criticality: NonCritical, installed: true},
+		installedForConfig: false,
+	}
+
+	events := collectEvents([]Module{module}, defaultContext())
+	if len(events) != 2 {
+		t.Fatalf("expected stale configured state to install, got %d events", len(events))
+	}
+	assertEvent(t, events[0], "M-46", "running", false)
+	assertEvent(t, events[1], "M-46", StatusInstalled, false)
 }
 
 func TestRun_DirectDependencyFailed(t *testing.T) {

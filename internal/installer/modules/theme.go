@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/davichuder/MyDots/internal/backup"
+	"github.com/davichuder/MyDots/internal/config"
 	"github.com/davichuder/MyDots/internal/installer/types"
 	"github.com/davichuder/MyDots/internal/platform"
 )
@@ -96,8 +97,15 @@ func (m ThemeModule) Dependencies() []types.ModuleID {
 	return []types.ModuleID{types.ModNeovim, types.ModOhMyZsh, types.ModZellij, types.ModGhostty}
 }
 
-// IsInstalled checks whether all four target config files contain the theme marker block.
-func (m ThemeModule) IsInstalled(_ platform.Platform) bool {
+// IsInstalled checks the default desired theme for direct callers. The executor
+// uses IsInstalledForConfig with the active session configuration.
+func (m ThemeModule) IsInstalled(p platform.Platform) bool {
+	return m.IsInstalledForConfig(p, config.DefaultConfig())
+}
+
+// IsInstalledForConfig checks whether every existing managed file contains the
+// selected theme block. Missing targets are optional because Install skips them.
+func (m ThemeModule) IsInstalledForConfig(_ platform.Platform, cfg config.Config) bool {
 	home, err := themeHomeDir()
 	if err != nil {
 		return false
@@ -107,9 +115,13 @@ func (m ThemeModule) IsInstalled(_ platform.Platform) bool {
 		absPath := filepath.Join(home, target.path)
 		data, err := themeReadFile(absPath)
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
 			return false
 		}
-		if !bytes.Contains(data, []byte(target.startMarker)) {
+		block := target.startMarker + "\n" + target.themeLine(string(cfg.Theme)) + "\n" + target.endMarker
+		if !bytes.Contains(data, []byte(block)) {
 			return false
 		}
 	}

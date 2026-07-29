@@ -57,17 +57,7 @@ func TestMcpConfig_IsInstalled(t *testing.T) {
 		t.Cleanup(func() { mcpHomeDir = origHome })
 
 		// Create opencode.json with all 6 MCP entries
-		cfg := map[string]interface{}{
-			"$schema": "https://opencode.ai/config.json",
-			"mcp": map[string]interface{}{
-				"supabase":   map[string]interface{}{"type": "local", "enabled": true},
-				"angular":    map[string]interface{}{"type": "local", "enabled": true},
-				"primeng":    map[string]interface{}{"type": "local", "enabled": true},
-				"postman":    map[string]interface{}{"type": "local", "enabled": true},
-				"context7":   map[string]interface{}{"type": "remote", "enabled": true},
-				"playwright": map[string]interface{}{"type": "local", "enabled": true},
-			},
-		}
+		cfg := map[string]interface{}{"$schema": "https://opencode.ai/config.json", "mcp": defaultMcpServers}
 		writeTestJSON(t, tmpDir, cfg)
 
 		m := McpConfigModule{}

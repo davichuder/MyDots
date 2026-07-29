@@ -64,16 +64,16 @@ func TestTheme_IsInstalled(t *testing.T) {
 
 		// Write all 4 config files with theme markers
 		mustWriteFile(t, filepath.Join(tmpDir, ".config", "nvim", "lua", "plugins", "colorscheme.lua"),
-			`-- MYDOTS_THEME_START\nvim.cmd.colorscheme("tokyo-night")\n-- MYDOTS_THEME_END\n`)
+			"-- MYDOTS_THEME_START\nvim.cmd.colorscheme(\"tokyo-night\")\n-- MYDOTS_THEME_END\n")
 		mustWriteFile(t, filepath.Join(tmpDir, ".zshrc"),
-			`# MYDOTS_THEME_START\nZSH_THEME="tokyo-night"\n# MYDOTS_THEME_END\n`)
+			"# MYDOTS_THEME_START\nZSH_THEME=\"tokyo-night\"\n# MYDOTS_THEME_END\n")
 		mustWriteFile(t, filepath.Join(tmpDir, ".config", "zellij", "config.kdl"),
-			`// MYDOTS_THEME_START\ntheme "tokyo-night"\n// MYDOTS_THEME_END\n`)
+			"// MYDOTS_THEME_START\ntheme \"tokyo-night\"\n// MYDOTS_THEME_END\n")
 		mustWriteFile(t, filepath.Join(tmpDir, ".config", "ghostty", "config"),
 			"# MYDOTS_THEME_START\ntheme = tokyo-night\n# MYDOTS_THEME_END\n")
 
 		m := ThemeModule{}
-		if !m.IsInstalled(platform.Platform{}) {
+		if !m.IsInstalledForConfig(platform.Platform{}, config.Config{Theme: config.ThemeTokyoNight}) {
 			t.Error("expected true when all 4 files contain theme markers")
 		}
 	})

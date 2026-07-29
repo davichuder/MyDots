@@ -53,6 +53,12 @@ func TestNerdFont_Dependencies(t *testing.T) {
 
 func TestNerdFont_IsInstalled(t *testing.T) {
 	t.Run("darwin font cask listed returns true", func(t *testing.T) {
+		home := t.TempDir()
+		mustWriteFile(t, filepath.Join(home, ".config", "ghostty", "config"), ghosttyFontBlock(config.DefaultConfig().Font))
+		originalHome := nerdFontHomeDir
+		nerdFontHomeDir = func() (string, error) { return home, nil }
+		t.Cleanup(func() { nerdFontHomeDir = originalHome })
+
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
 				if name == "brew" && len(args) >= 2 && args[0] == "list" && args[1] == "--cask" {
@@ -80,6 +86,12 @@ func TestNerdFont_IsInstalled(t *testing.T) {
 	})
 
 	t.Run("linux fc-list shows Nerd returns true", func(t *testing.T) {
+		home := t.TempDir()
+		mustWriteFile(t, filepath.Join(home, ".config", "ghostty", "config"), ghosttyFontBlock(config.DefaultConfig().Font))
+		originalHome := nerdFontHomeDir
+		nerdFontHomeDir = func() (string, error) { return home, nil }
+		t.Cleanup(func() { nerdFontHomeDir = originalHome })
+
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
 				if name == "fc-list" {
@@ -346,6 +358,19 @@ func TestNerdFont_AuditInfo(t *testing.T) {
 			t.Errorf("AuditInfo() = %q, want empty string", got)
 		}
 	})
+
+	t.Run("returns selected font from a normal marker block", func(t *testing.T) {
+		home := t.TempDir()
+		mustWriteFile(t, filepath.Join(home, ".config", "ghostty", "config"), ghosttyFontBlock(config.FontFiraCode))
+		originalHome := nerdFontHomeDir
+		nerdFontHomeDir = func() (string, error) { return home, nil }
+		t.Cleanup(func() { nerdFontHomeDir = originalHome })
+
+		if got := (NerdFontModule{}).AuditInfo(); got != "FiraCode Nerd Font" {
+			t.Errorf("AuditInfo() = %q, want %q", got, "FiraCode Nerd Font")
+		}
+	})
+
 	for _, tt := range []struct {
 		name    string
 		content string

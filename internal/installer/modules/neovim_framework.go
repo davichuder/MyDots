@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/davichuder/MyDots/internal/backup"
 	"github.com/davichuder/MyDots/internal/config"
 	"github.com/davichuder/MyDots/internal/installer/runner"
 	"github.com/davichuder/MyDots/internal/installer/types"
@@ -33,7 +34,8 @@ var frameworkDirs = []string{
 
 // Injectable file I/O for .zshrc in testing.
 var zshrcReadFile = os.ReadFile
-var zshrcWriteFile = os.WriteFile
+var zshrcWriteFile = atomicWriteFile
+var zshrcBackupFile = backup.BackupFile
 
 // NeovimFrameworkModule implements the Neovim framework (M-19) installation module.
 // It clones the selected framework's starter repo to ~/.config/nvim-<name>
@@ -60,20 +62,27 @@ func (m NeovimFrameworkModule) Dependencies() []types.ModuleID {
 	return []types.ModuleID{types.ModNeovim}
 }
 
-// IsInstalled checks whether any known framework config directory exists.
-// Scans all known nvim-<name> directories under ~/.config/. If any exists,
-// the module is considered installed.
-func (m NeovimFrameworkModule) IsInstalled(_ platform.Platform) bool {
+// IsInstalled checks the default selected framework for direct callers. The
+// executor uses IsInstalledForConfig with the active session configuration.
+func (m NeovimFrameworkModule) IsInstalled(p platform.Platform) bool {
+	return m.IsInstalledForConfig(p, config.DefaultConfig())
+}
+
+// IsInstalledForConfig checks the selected framework directory and its managed
+// shell alias.
+func (m NeovimFrameworkModule) IsInstalledForConfig(_ platform.Platform, cfg config.Config) bool {
 	home, err := nvimHomeDir()
 	if err != nil {
 		return false
 	}
-	for _, dir := range frameworkDirs {
-		if _, err := os.Stat(filepath.Join(home, ".config", dir)); err == nil {
-			return true
-		}
+	if _, ok := frameworkRepos[cfg.Nvim.Framework]; !ok {
+		return false
 	}
-	return false
+	if _, err = os.Stat(filepath.Join(home, ".config", "nvim-"+string(cfg.Nvim.Framework))); err != nil {
+		return false
+	}
+	data, err := zshrcReadFile(filepath.Join(home, ".zshrc"))
+	return err == nil && hasFrameworkAlias(data, frameworkAlias(cfg.Nvim.Framework))
 }
 
 // Install clones the selected framework repo and appends its shell alias.
@@ -108,15 +117,18 @@ func (m NeovimFrameworkModule) Install(ctx types.InstallContext) error {
 	}
 
 	// Step 2: Append alias to .zshrc if not already present.
-	alias := fmt.Sprintf("alias %s='NVIM_APPNAME=%s nvim'", string(fw), dirName)
+	alias := frameworkAlias(fw)
 
 	data, err := zshrcReadFile(zshrc)
+	exists := err == nil
 	if err != nil {
-		// .zshrc might not exist yet — treat as empty.
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("read .zshrc: %w", err)
+		}
 		data = []byte{}
 	}
 
-	if bytes.Contains(data, []byte(alias)) {
+	if hasFrameworkAlias(data, alias) {
 		return nil // already present, skip
 	}
 
@@ -126,7 +138,33 @@ func (m NeovimFrameworkModule) Install(ctx types.InstallContext) error {
 	}
 	data = append(data, []byte(alias+"\n")...)
 
+	if exists {
+		if err := zshrcBackupFile(zshrc, ctx.SessionTimestamp); err != nil {
+			return fmt.Errorf("backup .zshrc: %w", err)
+		}
+	}
 	return zshrcWriteFile(zshrc, data, 0644)
+}
+
+func frameworkAlias(fw config.NvimFramework) string {
+	return fmt.Sprintf("alias %s='NVIM_APPNAME=nvim-%s nvim'", string(fw), string(fw))
+}
+
+// hasFrameworkAlias checks the effective alias: zsh uses the last definition
+// for a name, so an earlier desired alias cannot mask a later conflicting one.
+func hasFrameworkAlias(data []byte, alias string) bool {
+	name, _, ok := strings.Cut(alias, "=")
+	if !ok {
+		return false
+	}
+	var effective string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, name+"=") {
+			effective = line
+		}
+	}
+	return effective == alias
 }
 
 // AuditInfo returns the framework name (e.g. "lazyvim").

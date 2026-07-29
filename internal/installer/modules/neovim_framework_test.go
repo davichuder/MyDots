@@ -49,7 +49,7 @@ func TestNeovimFramework_Dependencies(t *testing.T) {
 // --- IsInstalled ---
 
 func TestNeovimFramework_IsInstalled(t *testing.T) {
-	t.Run("any framework dir exists returns true", func(t *testing.T) {
+	t.Run("framework directory and managed alias return true", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		fwDir := filepath.Join(tmpDir, ".config", "nvim-lazyvim")
 		if err := os.MkdirAll(fwDir, 0755); err != nil {
@@ -58,10 +58,13 @@ func TestNeovimFramework_IsInstalled(t *testing.T) {
 
 		origHome := nvimHomeDir
 		nvimHomeDir = func() (string, error) { return tmpDir, nil }
-		t.Cleanup(func() { nvimHomeDir = origHome })
+		origRead := zshrcReadFile
+		zshrcReadFile = os.ReadFile
+		t.Cleanup(func() { nvimHomeDir, zshrcReadFile = origHome, origRead })
+		mustWriteFile(t, filepath.Join(tmpDir, ".zshrc"), frameworkAlias(config.NvimFrameworkLazyVim)+"\n")
 
 		m := NeovimFrameworkModule{}
-		if !m.IsInstalled(platform.Platform{}) {
+		if !m.IsInstalledForConfig(platform.Platform{}, config.Config{Nvim: config.NvimOptions{Framework: config.NvimFrameworkLazyVim}}) {
 			t.Error("expected true when framework dir exists")
 		}
 	})

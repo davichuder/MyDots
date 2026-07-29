@@ -76,18 +76,39 @@ func (m NerdFontModule) Criticality() types.Criticality { return types.NonCritic
 // Dependencies returns no dependencies — Nerd Font can install independently.
 func (m NerdFontModule) Dependencies() []types.ModuleID { return nil }
 
-// IsInstalled checks whether a Nerd Font is already installed on the system.
-//   - Darwin: checks if any nerd font cask appears in `brew list --cask`
-//   - Linux: checks if `fc-list` output contains "Nerd Font"
+// IsInstalled checks the default selected font for direct callers. The executor
+// uses IsInstalledForConfig with the active session configuration.
 func (m NerdFontModule) IsInstalled(p platform.Platform) bool {
+	return m.IsInstalledForConfig(p, config.DefaultConfig())
+}
+
+// IsInstalledForConfig checks the configured font and, when Ghostty is
+// configured, its managed Ghostty configuration block.
+func (m NerdFontModule) IsInstalledForConfig(p platform.Platform, cfg config.Config) bool {
+	fontInstalled := false
 	if p.OS == platform.Darwin {
 		out := runner.CaptureOutput("brew", "list", "--cask")
-		return strings.Contains(out, "nerd-font")
+		cask, ok := nerdFontCaskName[cfg.Font]
+		fontInstalled = ok && strings.Contains(out, cask)
+	} else {
+		// Linux — check fontconfig for the selected Nerd Font.
+		out := runner.CaptureOutput("fc-list")
+		fontInstalled = strings.Contains(out, string(cfg.Font)+" Nerd Font")
 	}
 
-	// Linux — check fontconfig for Nerd Font.
-	out := runner.CaptureOutput("fc-list")
-	return strings.Contains(out, "Nerd Font")
+	if !fontInstalled {
+		return false
+	}
+
+	home, err := nerdFontHomeDir()
+	if err != nil {
+		return false
+	}
+	data, err := nerdFontReadFile(filepath.Join(home, ".config", "ghostty", "config"))
+	if os.IsNotExist(err) {
+		return true
+	}
+	return err == nil && ghosttyFontBlockMatches(data, cfg.Font)
 }
 
 // Install installs the selected Nerd Font and updates Ghostty config.
@@ -131,12 +152,11 @@ func (m NerdFontModule) updateGhosttyFont(ctx types.InstallContext) error {
 		return err
 	}
 
-	fontDisplayName := string(ctx.Config.Font) + " Nerd Font"
 	ghosttyConfig := filepath.Join(home, ".config", "ghostty", "config")
 
 	startMarker := "# MYDOTS_FONT_START"
 	endMarker := "# MYDOTS_FONT_END"
-	block := startMarker + "\nfont-family = " + fontDisplayName + "\n" + endMarker + "\n"
+	block := ghosttyFontBlock(ctx.Config.Font)
 
 	data, readErr := nerdFontReadFile(ghosttyConfig)
 	if readErr != nil {
@@ -182,6 +202,25 @@ func (m NerdFontModule) updateGhosttyFont(ctx types.InstallContext) error {
 	}
 	data = append(data, []byte(block)...)
 	return nerdFontWriteFile(ghosttyConfig, data, 0644)
+}
+
+func ghosttyFontBlock(font config.FontChoice) string {
+	return "# MYDOTS_FONT_START\nfont-family = " + string(font) + " Nerd Font\n# MYDOTS_FONT_END\n"
+}
+
+func ghosttyFontBlockMatches(data []byte, font config.FontChoice) bool {
+	const startMarker = "# MYDOTS_FONT_START"
+	const endMarker = "# MYDOTS_FONT_END"
+	start := bytes.Index(data, []byte(startMarker))
+	if start < 0 {
+		return false
+	}
+	end := bytes.Index(data[start+len(startMarker):], []byte(endMarker))
+	if end < 0 {
+		return false
+	}
+	end += start + len(startMarker) + len(endMarker)
+	return strings.TrimSpace(string(data[start:end])) == strings.TrimSpace(ghosttyFontBlock(font))
 }
 
 // AuditInfo returns the installed font name by reading ghostty config.

@@ -50,8 +50,13 @@ func runOne(mod Module, ctx InstallContext, ch chan ProgressEvent, failedIDs map
 		}
 	}
 
-	// Idempotence check — skip if already installed.
-	if mod.IsInstalled(ctx.Platform) {
+	// Idempotence check — configuration-aware modules must match the current
+	// desired state rather than merely any prior installation.
+	installed := mod.IsInstalled(ctx.Platform)
+	if configured, ok := mod.(ConfiguredStateModule); ok {
+		installed = configured.IsInstalledForConfig(ctx.Platform, ctx.Config)
+	}
+	if installed {
 		ch <- ProgressEvent{ModuleID: mod.ID(), Status: StatusSkipped}
 		return nil
 	}

@@ -88,5 +88,8 @@ const (
 // Module is the interface every installable module must implement.
 type Module = types.Module
 
+// ConfiguredStateModule is the optional configuration-aware idempotence contract.
+type ConfiguredStateModule = types.ConfiguredStateModule
+
 // InstallContext bundles shared state for an entire install session.
 type InstallContext = types.InstallContext

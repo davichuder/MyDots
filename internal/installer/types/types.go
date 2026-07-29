@@ -119,6 +119,12 @@ type Module interface {
 	AuditInfo() string
 }
 
+// ConfiguredStateModule is an optional extension for modules whose state
+// depends on the current session configuration.
+type ConfiguredStateModule interface {
+	IsInstalledForConfig(p platform.Platform, cfg config.Config) bool
+}
+
 // InstallContext bundles shared state for an entire install session.
 // It is passed to every Module.Install() call so that all modules
 // share the same platform, config, timestamp, log writer, cancellation
