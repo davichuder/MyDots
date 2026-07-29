@@ -1,0 +1,4 @@
+# user-managed configuration
+// MYDOTS_THEME_START
+theme "tokyo-night"
+// MYDOTS_THEME_END

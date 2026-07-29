@@ -408,13 +408,46 @@ func TestTheme_AuditInfo(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTheme_GoldenFiles(t *testing.T) {
-	// Golden files test: write theme to a temp dir, then compare each
-	// output file against the expected golden content.
-	//
-	// This test is marked as update-golden compatible:
-	//   go test -run TestTheme_GoldenFiles -update
-	// rewrites the .golden files from the current output.
-	t.Skip("golden file test scaffolding — enable after golden files are committed")
+	tmpDir := t.TempDir()
+
+	origHome := themeHomeDir
+	origBackup := themeBackupFile
+	themeHomeDir = func() (string, error) { return tmpDir, nil }
+	themeBackupFile = func(string, string) error { return nil }
+	t.Cleanup(func() {
+		themeHomeDir = origHome
+		themeBackupFile = origBackup
+	})
+
+	for _, target := range themeTargets {
+		mustWriteFile(t, filepath.Join(tmpDir, target.path), "# user-managed configuration\n")
+	}
+
+	err := (ThemeModule{}).Install(types.InstallContext{
+		Cancel:           context.Background(),
+		SessionTimestamp: "golden-test",
+		Config:           config.Config{Theme: config.ThemeTokyoNight},
+	})
+	if err != nil {
+		t.Fatalf("Install() = %v, want nil", err)
+	}
+
+	for _, target := range themeTargets {
+		t.Run(target.path, func(t *testing.T) {
+			got, err := os.ReadFile(filepath.Join(tmpDir, target.path))
+			if err != nil {
+				t.Fatalf("read generated config: %v", err)
+			}
+			fixtureName := strings.ReplaceAll(filepath.ToSlash(target.path), "/", "_") + ".golden"
+			want, err := os.ReadFile(filepath.Join("testdata", "theme", fixtureName))
+			if err != nil {
+				t.Fatalf("read golden fixture: %v", err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Errorf("generated %s does not match committed golden fixture\nwant:\n%s\ngot:\n%s", target.path, want, got)
+			}
+		})
+	}
 }
 
 // --- helpers ---

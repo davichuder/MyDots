@@ -76,5 +76,3 @@ func (m SdkmanModule) Install(ctx types.InstallContext) error {
 func (m SdkmanModule) AuditInfo() string {
 	return m.manager.AuditInfo()
 }
-
-

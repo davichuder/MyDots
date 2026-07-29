@@ -314,7 +314,46 @@ func TestMcpConfig_AuditInfo(t *testing.T) {
 // --- Golden file ---
 
 func TestMcpConfig_GoldenMerge(t *testing.T) {
-	t.Skip("golden file test — enable after mcp_config.go is running")
+	tmpDir := t.TempDir()
+
+	origHome := mcpHomeDir
+	origBackup := mcpBackupFile
+	mcpHomeDir = func() (string, error) { return tmpDir, nil }
+	mcpBackupFile = func(string, string) error { return nil }
+	t.Cleanup(func() {
+		mcpHomeDir = origHome
+		mcpBackupFile = origBackup
+	})
+
+	input, err := os.ReadFile(filepath.Join("testdata", "mcp", "merge-input.json"))
+	if err != nil {
+		t.Fatalf("read merge input fixture: %v", err)
+	}
+	opencodePath := filepath.Join(tmpDir, ".config", "opencode", "opencode.json")
+	mustWriteFile(t, opencodePath, string(input))
+
+	err = (McpConfigModule{}).Install(types.InstallContext{
+		Cancel:           context.Background(),
+		SessionTimestamp: "golden-test",
+	})
+	if err != nil {
+		t.Fatalf("Install() = %v, want nil", err)
+	}
+
+	got, err := os.ReadFile(opencodePath)
+	if err != nil {
+		t.Fatalf("read merged config: %v", err)
+	}
+	want, err := os.ReadFile(filepath.Join("testdata", "mcp", "merge-output.golden"))
+	if err != nil {
+		t.Fatalf("read golden fixture: %v", err)
+	}
+	// json.MarshalIndent deliberately emits no terminal newline, while source
+	// fixtures are stored as newline-terminated text files.
+	want = bytes.TrimSuffix(want, []byte("\n"))
+	if !bytes.Equal(got, want) {
+		t.Errorf("merged opencode.json does not match committed golden fixture\nwant:\n%s\ngot:\n%s", want, got)
+	}
 }
 
 // --- helpers ---
