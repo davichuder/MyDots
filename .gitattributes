@@ -1,1 +1,1 @@
-testdata/*.golden binary
+*.golden text eol=lf
