@@ -346,4 +346,54 @@ func TestNerdFont_AuditInfo(t *testing.T) {
 			t.Errorf("AuditInfo() = %q, want empty string", got)
 		}
 	})
+	for _, tt := range []struct {
+		name    string
+		content string
+	}{
+		{"start marker without a block", "# MYDOTS_FONT_START\n"},
+		{"invalid font directive", "# MYDOTS_FONT_START\nfont-family\n# MYDOTS_FONT_END\n"},
+		{"empty font directive", "# MYDOTS_FONT_START\nfont-family = \n# MYDOTS_FONT_END\n"},
+		{"empty quoted font directive", "# MYDOTS_FONT_START\nfont-family = \"\"\n# MYDOTS_FONT_END\n"},
+		{"extra equals in font directive", "# MYDOTS_FONT_START\nfont-family == Hack Nerd Font\n# MYDOTS_FONT_END\n"},
+		{"spaced extra separator in font directive", "# MYDOTS_FONT_START\nfont-family = = Hack Nerd Font\n# MYDOTS_FONT_END\n"},
+		{"missing font-family key", "# MYDOTS_FONT_START\n= Hack Nerd Font\n# MYDOTS_FONT_END\n"},
+		{"whitespace within font-family key", "# MYDOTS_FONT_START\nfont- family = Hack Nerd Font\n# MYDOTS_FONT_END\n"},
+		{"duplicate font directives", "# MYDOTS_FONT_START\nfont-family = FiraCode Nerd Font\nfont-family = Hack Nerd Font\n# MYDOTS_FONT_END\n"},
+		{"valid directive followed by EOF", "# MYDOTS_FONT_START\nfont-family = FiraCode Nerd Font\n"},
+		{"end marker before start marker", "# MYDOTS_FONT_END\n# MYDOTS_FONT_START\nfont-family = FiraCode Nerd Font\n# MYDOTS_FONT_END\n"},
+		{"conflicting complete blocks", "# MYDOTS_FONT_START\nfont-family = FiraCode Nerd Font\n# MYDOTS_FONT_END\n# MYDOTS_FONT_START\nfont-family = Hack Nerd Font\n# MYDOTS_FONT_END\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			mustWriteFile(t, filepath.Join(home, ".config", "ghostty", "config"), tt.content)
+			originalHome := nerdFontHomeDir
+			nerdFontHomeDir = func() (string, error) { return home, nil }
+			t.Cleanup(func() { nerdFontHomeDir = originalHome })
+
+			if got := (NerdFontModule{}).AuditInfo(); got != "" {
+				t.Errorf("AuditInfo() = %q, want empty", got)
+			}
+		})
+	}
+
+	for _, tt := range []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"no whitespace around separator", "# MYDOTS_FONT_START\nfont-family=Hack Nerd Font\n# MYDOTS_FONT_END\n", "Hack Nerd Font"},
+		{"tab whitespace around separator", "# MYDOTS_FONT_START\n\tfont-family\t=\tHack Nerd Font\n# MYDOTS_FONT_END\n", "Hack Nerd Font"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			mustWriteFile(t, filepath.Join(home, ".config", "ghostty", "config"), tt.content)
+			originalHome := nerdFontHomeDir
+			nerdFontHomeDir = func() (string, error) { return home, nil }
+			t.Cleanup(func() { nerdFontHomeDir = originalHome })
+
+			if got := (NerdFontModule{}).AuditInfo(); got != tt.want {
+				t.Errorf("AuditInfo() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

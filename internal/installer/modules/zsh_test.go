@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
+	"reflect"
 	"testing"
 
 	"github.com/davichuder/MyDots/internal/installer/types"
@@ -115,6 +115,7 @@ func TestZsh_Install(t *testing.T) {
 	})
 
 	t.Run("ubuntu appends to /etc/shells and runs chsh", func(t *testing.T) {
+		var sudoArgs []string
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
 				switch {
@@ -122,6 +123,9 @@ func TestZsh_Install(t *testing.T) {
 					return nil, nil
 				case name == "brew" && len(args) == 1 && args[0] == "--prefix":
 					return []byte("/home/linuxbrew/.linuxbrew"), nil
+				case name == "sudo":
+					sudoArgs = append([]string(nil), args...)
+					return nil, nil
 				case name == "chsh":
 					return nil, nil
 				default:
@@ -131,21 +135,12 @@ func TestZsh_Install(t *testing.T) {
 		})
 
 		origRead := readShellsFile
-		origWrite := writeShellsFile
 		t.Cleanup(func() {
 			readShellsFile = origRead
-			writeShellsFile = origWrite
 		})
 
-		var writePath string
-		var writeData []byte
 		readShellsFile = func(path string) ([]byte, error) {
 			return []byte("/bin/zsh\n"), nil
-		}
-		writeShellsFile = func(path string, data []byte, perm os.FileMode) error {
-			writePath = path
-			writeData = data
-			return nil
 		}
 
 		ctx := types.InstallContext{
@@ -157,15 +152,13 @@ func TestZsh_Install(t *testing.T) {
 		if err := m.Install(ctx); err != nil {
 			t.Errorf("Install() = %v, want nil", err)
 		}
-		if writePath != "/etc/shells" {
-			t.Errorf("writeShellsFile path = %q, want %q", writePath, "/etc/shells")
-		}
-		if !bytes.Contains(writeData, []byte("/home/linuxbrew/.linuxbrew/bin/zsh")) {
-			t.Errorf("writeShellsFile data should contain brew zsh path, got: %q", string(writeData))
+		if !reflect.DeepEqual(sudoArgs, []string{"sh", "-c", `printf '%s\n' "$1" >> "$2"`, "sh", "/home/linuxbrew/.linuxbrew/bin/zsh", "/etc/shells"}) {
+			t.Errorf("sudo args = %#v, want safe elevated shell registration", sudoArgs)
 		}
 	})
 
 	t.Run("ubuntu idempotent — brew path already in /etc/shells", func(t *testing.T) {
+		var sudoCalled bool
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
 				switch {
@@ -173,6 +166,9 @@ func TestZsh_Install(t *testing.T) {
 					return nil, nil
 				case name == "brew" && len(args) == 1 && args[0] == "--prefix":
 					return []byte("/home/linuxbrew/.linuxbrew"), nil
+				case name == "sudo":
+					sudoCalled = true
+					return nil, nil
 				case name == "chsh":
 					return nil, nil
 				default:
@@ -182,19 +178,12 @@ func TestZsh_Install(t *testing.T) {
 		})
 
 		origRead := readShellsFile
-		origWrite := writeShellsFile
 		t.Cleanup(func() {
 			readShellsFile = origRead
-			writeShellsFile = origWrite
 		})
 
-		var writeCalled bool
 		readShellsFile = func(path string) ([]byte, error) {
 			return []byte("/bin/zsh\n/home/linuxbrew/.linuxbrew/bin/zsh\n"), nil
-		}
-		writeShellsFile = func(path string, data []byte, perm os.FileMode) error {
-			writeCalled = true
-			return nil
 		}
 
 		ctx := types.InstallContext{
@@ -206,8 +195,8 @@ func TestZsh_Install(t *testing.T) {
 		if err := m.Install(ctx); err != nil {
 			t.Errorf("Install() = %v, want nil", err)
 		}
-		if writeCalled {
-			t.Error("writeShellsFile should not be called when brew path already in /etc/shells")
+		if sudoCalled {
+			t.Error("shell registration should not be called when brew path already in /etc/shells")
 		}
 	})
 
@@ -219,6 +208,8 @@ func TestZsh_Install(t *testing.T) {
 					return nil, nil
 				case name == "brew" && len(args) == 1 && args[0] == "--prefix":
 					return []byte("/home/linuxbrew/.linuxbrew"), nil
+				case name == "sudo":
+					return nil, nil
 				case name == "chsh":
 					return nil, errors.New("permission denied")
 				default:
@@ -228,17 +219,12 @@ func TestZsh_Install(t *testing.T) {
 		})
 
 		origRead := readShellsFile
-		origWrite := writeShellsFile
 		t.Cleanup(func() {
 			readShellsFile = origRead
-			writeShellsFile = origWrite
 		})
 
 		readShellsFile = func(path string) ([]byte, error) {
 			return []byte("/bin/zsh\n"), nil
-		}
-		writeShellsFile = func(path string, data []byte, perm os.FileMode) error {
-			return nil
 		}
 
 		ctx := types.InstallContext{

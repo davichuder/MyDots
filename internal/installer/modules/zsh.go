@@ -20,9 +20,8 @@ var _ types.Module = ZshModule{}
 // Zsh is the exported package-level instance used by the catalogue.
 var Zsh types.Module = ZshModule{}
 
-// Injectable file I/O for /etc/shells mocking (like readProcVersion in detect.go).
+// Injectable file read for /etc/shells mocking (like readProcVersion in detect.go).
 var readShellsFile = os.ReadFile
-var writeShellsFile = os.WriteFile
 
 // ID returns the stable module identifier M-02.
 func (m ZshModule) ID() types.ModuleID { return types.ModZsh }
@@ -50,7 +49,10 @@ func (m ZshModule) Install(ctx types.InstallContext) error {
 	}
 
 	// Step 2: Get the Homebrew prefix to construct the zsh binary path.
-	prefix := runner.CaptureOutput("brew", "--prefix")
+	prefix, err := runner.CaptureOutputError("brew", "--prefix")
+	if err != nil {
+		return err
+	}
 	zshPath := prefix + "/bin/zsh"
 
 	// Step 3: On Linux Native (not Darwin, not WSL2), ensure zsh is in /etc/shells.
@@ -69,7 +71,9 @@ func (m ZshModule) Install(ctx types.InstallContext) error {
 		}
 
 		if !found {
-			if err := writeShellsFile("/etc/shells", append(data, zshPath+"\n"...), 0644); err != nil {
+			// Positional parameters keep the shell path and target path out of the
+			// shell program, avoiding expansion or quoting hazards under sudo.
+			if err := runner.Run(ctx.Cancel, ctx.Log, "sudo", "sh", "-c", `printf '%s\n' "$1" >> "$2"`, "sh", zshPath, "/etc/shells"); err != nil {
 				return err
 			}
 		}

@@ -197,23 +197,64 @@ func (m NerdFontModule) AuditInfo() string {
 		return ""
 	}
 
-	startMarker := "# MYDOTS_FONT_START"
-	startIdx := bytes.Index(data, []byte(startMarker))
-	if startIdx < 0 {
+	const startMarker = "# MYDOTS_FONT_START"
+	const endMarker = "# MYDOTS_FONT_END"
+	var installedFont string
+	var blockFont string
+	inBlock := false
+	hasFontDirective := false
+	for _, line := range strings.Split(string(data), "\n") {
+		fontLine := strings.TrimSpace(line)
+		switch {
+		case fontLine == startMarker:
+			if inBlock {
+				return ""
+			}
+			inBlock = true
+			hasFontDirective = false
+			blockFont = ""
+		case fontLine == endMarker:
+			if !inBlock || !hasFontDirective {
+				return ""
+			}
+			if installedFont != "" && installedFont != blockFont {
+				return ""
+			}
+			installedFont = blockFont
+			inBlock = false
+		case fontLine == "":
+			continue
+		case !inBlock:
+			continue
+		case hasFontDirective:
+			return ""
+		default:
+			font, ok := ghosttyFontFamilyAssignment(fontLine)
+			if !ok {
+				return ""
+			}
+			blockFont = font
+			hasFontDirective = true
+		}
+	}
+	if inBlock {
 		return ""
 	}
+	return installedFont
+}
 
-	afterStart := data[startIdx+len(startMarker):]
-	// Find first newline after marker.
-	newlineIdx := bytes.Index(afterStart, []byte("\n"))
-	if newlineIdx < 0 {
-		return ""
+// ghosttyFontFamilyAssignment accepts Ghostty's key = value syntax for one
+// non-empty font-family directive. Whitespace around the separator is optional.
+func ghosttyFontFamilyAssignment(line string) (string, bool) {
+	if strings.Count(line, "=") != 1 {
+		return "", false
 	}
 
-	fontLine := strings.TrimSpace(string(afterStart[1:newlineIdx]))
-	// Extract value after "font-family = "
-	if parts := strings.SplitN(fontLine, "=", 2); len(parts) == 2 {
-		return strings.TrimSpace(parts[1])
+	separator := strings.IndexByte(line, '=')
+	key := strings.TrimSpace(line[:separator])
+	value := strings.TrimSpace(line[separator+1:])
+	if key != "font-family" || value == "" || value == `""` {
+		return "", false
 	}
-	return ""
+	return value, true
 }

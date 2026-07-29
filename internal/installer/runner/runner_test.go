@@ -482,6 +482,151 @@ func TestShippedCavemanScriptRunsDownloadedInstallerWithOpenclawOnly(t *testing.
 	}
 }
 
+func TestShippedFontLinuxScriptInstallsAndRefreshesFontCache(t *testing.T) {
+	binDir := t.TempDir()
+	fontHome := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fL\" ] || exit 11\n[ \"$2\" = \"-o\" ] || exit 12\nprintf 'archive' > \"$3\"\nprintf 'curl:%s\\n' \"$4\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\n[ \"$1\" = \"-o\" ] || exit 21\n[ \"$3\" = \"-d\" ] || exit 22\nmkdir -p \"$4\"\nprintf 'font' > \"$4/font.ttf\"\nprintf 'unzip:%s:%s\\n' \"$2\" \"$4\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\n[ \"$1\" = \"-fv\" ] || exit 31\nprintf 'cache:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", fontHome)
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "FiraCode.zip")
+
+	log, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir)
+	if err != nil {
+		t.Fatalf("font-linux.sh = %v, output: %s", err, log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	fontDir := filepath.Join(fontHome, ".local", "share", "fonts")
+	if !strings.Contains(string(commands), "curl:https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip") ||
+		!strings.Contains(string(commands), "unzip:") ||
+		!strings.Contains(string(commands), "cache:") ||
+		!strings.Contains(string(commands), "/.local/share/fonts\n") {
+		t.Errorf("commands = %q, want download, extract, and cache refresh", commands)
+	}
+	if _, err := os.Stat(filepath.Join(fontDir, "font.ttf")); err != nil {
+		t.Errorf("extracted font = %v, want file", err)
+	}
+}
+
+func TestShippedFontLinuxScriptStopsWhenDownloadFails(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nexit 22\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\nprintf 'unzip\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\nprintf 'cache\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	if _, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir); err == nil {
+		t.Fatal("font-linux.sh returned nil after the download failed")
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	if got := string(commands); got != "curl\n" {
+		t.Errorf("commands = %q, want curl only", got)
+	}
+}
+
+func TestShippedFontLinuxScriptStopsWhenUnzipIsMissing(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf '%s\\n' \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "mkdir"), "#!/bin/sh\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	log, err := runPOSIXScriptWithPath(t, "assets/scripts/font-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("font-linux.sh returned nil when unzip was unavailable")
+	}
+	if got, want := log, "Error: unzip is required to install Nerd Fonts.\n"; got != want {
+		t.Errorf("font-linux.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("curl ran without unzip; stat error = %v", err)
+	}
+}
+
+func TestShippedFontLinuxScriptStopsWhenExtractionFails(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'archive' > \"$3\"\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\nprintf 'unzip\\n' >> \"$COMMAND_LOG\"\nexit 32\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\nprintf 'cache\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	log, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("font-linux.sh returned nil after unzip failed")
+	}
+	if strings.Contains(log, "Nerd Font installation complete") {
+		t.Errorf("font-linux.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	if got := string(commands); got != "curl\nunzip\n" {
+		t.Errorf("commands = %q, want curl and unzip only", got)
+	}
+}
+
+func TestShippedFontLinuxScriptStopsWhenFontCacheRefreshFails(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'archive' > \"$3\"\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\nmkdir -p \"$4\"\nprintf 'unzip\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\nprintf 'cache\\n' >> \"$COMMAND_LOG\"\nexit 43\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	log, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("font-linux.sh returned nil after fc-cache failed")
+	}
+	if strings.Contains(log, "Nerd Font installation complete") {
+		t.Errorf("font-linux.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	if got := string(commands); got != "curl\nunzip\ncache\n" {
+		t.Errorf("commands = %q, want curl, unzip, and failed cache refresh", got)
+	}
+}
+
+func TestShippedFontLinuxScriptRejectsUnsafeFontName(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "../unsafe.zip")
+
+	if _, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir); err == nil {
+		t.Fatal("font-linux.sh returned nil for an unsafe font name")
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("curl ran for an unsafe font name; stat error = %v", err)
+	}
+}
+
 func writeScriptStub(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0700); err != nil {
@@ -491,13 +636,18 @@ func writeScriptStub(t *testing.T, path, content string) {
 
 func runPOSIXScript(t *testing.T, script, binDir string) (string, error) {
 	t.Helper()
+	return runPOSIXScriptWithPath(t, script, scriptTestPath(binDir))
+}
+
+func runPOSIXScriptWithPath(t *testing.T, script, path string) (string, error) {
+	t.Helper()
 	repoRoot, err := filepath.Abs("../../..")
 	if err != nil {
 		t.Fatalf("Abs repository root: %v", err)
 	}
 
 	cmd := exec.Command(posixShell(t), filepath.Join(repoRoot, script))
-	cmd.Env = replaceEnv(os.Environ(), "PATH", scriptTestPath(binDir))
+	cmd.Env = replaceEnv(os.Environ(), "PATH", path)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }

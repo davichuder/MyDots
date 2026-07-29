@@ -165,9 +165,21 @@ func CommandExists(name string) bool {
 // CaptureOutput runs a command and returns its trimmed stdout as a string.
 // Returns an empty string if the command fails (non-zero exit).
 func CaptureOutput(name string, args ...string) string {
-	out, err := currentExecutor.Execute(context.Background(), name, args...)
+	out, err := CaptureOutputError(name, args...)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return out
+}
+
+// CaptureOutputError runs a command and returns its trimmed output and error.
+// Callers that must not continue after a failed probe use this instead of
+// CaptureOutput, which intentionally preserves its historical empty-on-error
+// contract for idempotence checks.
+func CaptureOutputError(name string, args ...string) (string, error) {
+	out, err := currentExecutor.Execute(context.Background(), name, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
