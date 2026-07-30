@@ -122,7 +122,7 @@ func RefreshBrew(p platform.Platform) (string, error) {
 	case platform.Linux:
 		candidates = []string{"/home/linuxbrew/.linuxbrew/bin/brew"}
 	default:
-		return "", fmt.Errorf("Homebrew is unsupported on %s", p.OS)
+		return "", fmt.Errorf("homebrew is unsupported on %s", p.OS)
 	}
 
 	for _, candidate := range candidates {
