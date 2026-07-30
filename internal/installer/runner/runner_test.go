@@ -482,6 +482,110 @@ func TestShippedCavemanScriptRunsDownloadedInstallerWithOpenclawOnly(t *testing.
 	}
 }
 
+func TestShippedGhosttyLinuxScriptDownloadsAndRunsUbuntuInstaller(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"-o\" ] || exit 12\n[ \"$4\" = \"https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh\" ] || exit 13\nprintf '#!/bin/sh\\necho upstream-installer-ran\\n' > \"$3\"\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexec sh \"$1\"\n")
+	t.Setenv("COMMAND_LOG", logFile)
+
+	log, err := runPOSIXScript(t, "assets/scripts/ghostty-linux.sh", binDir)
+	if err != nil {
+		t.Fatalf("ghostty-linux.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "upstream-installer-ran") || !strings.Contains(log, "Ghostty installation complete") {
+		t.Errorf("ghostty-linux.sh output = %q, want installer and completion output", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 2 || !strings.HasPrefix(entries[0], "curl:") || entries[1] != "bash:"+strings.TrimPrefix(entries[0], "curl:") {
+		t.Errorf("commands = %q, want curl followed by bash for the same temporary installer", commands)
+		return
+	}
+	installerPath := strings.TrimPrefix(entries[0], "curl:")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+}
+
+func TestShippedGhosttyLinuxScriptStopsWhenDownloadFails(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\nexit 22\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("COMMAND_LOG", logFile)
+
+	log, err := runPOSIXScript(t, "assets/scripts/ghostty-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("ghostty-linux.sh returned nil after the download failed")
+	}
+	if strings.Contains(log, "Ghostty installation complete") {
+		t.Errorf("ghostty-linux.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	installerPath := strings.TrimPrefix(strings.TrimSpace(string(commands)), "curl:")
+	if installerPath == strings.TrimSpace(string(commands)) {
+		t.Fatalf("commands = %q, want curl temporary installer path", commands)
+	}
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after download failure; stat error = %v", installerPath, err)
+	}
+}
+
+func TestShippedGhosttyLinuxScriptValidatesRequiredToolsBeforeDownloading(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf '%s\\n' \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("COMMAND_LOG", logFile)
+
+	log, err := runPOSIXScriptWithPath(t, "assets/scripts/ghostty-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("ghostty-linux.sh returned nil without curl")
+	}
+	if !strings.Contains(log, "curl is required") {
+		t.Errorf("ghostty-linux.sh output = %q, want missing curl error", log)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("installer ran without curl; stat error = %v", err)
+	}
+}
+
+func TestShippedGhosttyLinuxScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '#!/bin/sh\\nexit 43\\n' > \"$3\"\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexit 43\n")
+	t.Setenv("COMMAND_LOG", logFile)
+
+	log, err := runPOSIXScript(t, "assets/scripts/ghostty-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("ghostty-linux.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "Ghostty installation complete") {
+		t.Errorf("ghostty-linux.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 2 || !strings.HasPrefix(entries[0], "curl:") || entries[1] != "bash:"+strings.TrimPrefix(entries[0], "curl:") {
+		t.Errorf("commands = %q, want curl followed by bash for the same temporary installer", commands)
+		return
+	}
+	installerPath := strings.TrimPrefix(entries[0], "curl:")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+}
+
 func TestShippedFontLinuxScriptInstallsAndRefreshesFontCache(t *testing.T) {
 	binDir := t.TempDir()
 	fontHome := t.TempDir()
