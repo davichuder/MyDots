@@ -354,24 +354,25 @@ func TestTheme_Install(t *testing.T) {
 		t.Cleanup(func() { themeHomeDir = origHome })
 
 		origWrite := themeWriteFile
-		origMkdir := themeMkdirAll
+		origBackup := themeBackupFile
 		t.Cleanup(func() {
 			themeWriteFile = origWrite
-			themeMkdirAll = origMkdir
+			themeBackupFile = origBackup
 		})
-		themeMkdirAll = func(path string, perm os.FileMode) error { return origMkdir(path, perm) }
 
 		// Pre-create a .zshrc file so backup is needed
 		zshrc := filepath.Join(tmpDir, ".zshrc")
-		os.WriteFile(zshrc, []byte("export EDITOR=nvim\n"), 0644)
+		mustWriteFile(t, zshrc, "export EDITOR=nvim\n")
 
-		var backupCalls []string
-		origBkp := themeBackupFile
+		var events []string
 		themeBackupFile = func(path, ts string) error {
-			backupCalls = append(backupCalls, path)
-			return origBkp(path, ts)
+			events = append(events, "backup:"+path)
+			return nil
 		}
-		t.Cleanup(func() { themeBackupFile = origBkp })
+		themeWriteFile = func(path string, data []byte, perm os.FileMode) error {
+			events = append(events, "write:"+path)
+			return origWrite(path, data, perm)
+		}
 
 		ctx := types.InstallContext{
 			Cancel:           context.Background(),
@@ -384,9 +385,14 @@ func TestTheme_Install(t *testing.T) {
 			t.Fatalf("Install() = %v, want nil", err)
 		}
 
-		// Backup should have been called for .zshrc (the only pre-existing file)
-		if len(backupCalls) != 1 || !strings.Contains(backupCalls[0], ".zshrc") {
-			t.Errorf("expected backup for existing .zshrc, got %v", backupCalls)
+		wantEvents := []string{"backup:" + zshrc, "write:" + zshrc}
+		if len(events) != len(wantEvents) {
+			t.Fatalf("backup/write events = %v, want %v", events, wantEvents)
+		}
+		for i, want := range wantEvents {
+			if events[i] != want {
+				t.Errorf("event[%d] = %q, want %q", i, events[i], want)
+			}
 		}
 	})
 }

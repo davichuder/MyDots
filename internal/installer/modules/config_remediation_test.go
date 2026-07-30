@@ -124,10 +124,12 @@ func TestConfiguredStateRejectsStaleSelections(t *testing.T) {
 }
 
 func TestMcpManagedEntryReconciliationRemovesUnknownFields(t *testing.T) {
+	originalHome, originalBackup := mcpHomeDir, mcpBackupFile
+	mcpBackupFile = func(string, string) error { return nil }
+	t.Cleanup(func() { mcpHomeDir, mcpBackupFile = originalHome, originalBackup })
+
 	home := t.TempDir()
-	originalHome := mcpHomeDir
 	mcpHomeDir = func() (string, error) { return home, nil }
-	t.Cleanup(func() { mcpHomeDir = originalHome })
 	writeTestJSON(t, home, map[string]interface{}{"mcp": map[string]interface{}{
 		"supabase": map[string]interface{}{"type": "local", "command": []string{"npx", "-y", "@supabase/mcp-server-supabase@latest"}, "enabled": true, "env": map[string]string{"STALE": "1"}},
 		"custom":   map[string]interface{}{"headers": map[string]string{"keep": "me"}},

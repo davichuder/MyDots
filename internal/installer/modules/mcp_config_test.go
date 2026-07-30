@@ -105,6 +105,10 @@ func TestMcpConfig_IsInstalled(t *testing.T) {
 // --- Install ---
 
 func TestMcpConfig_Install(t *testing.T) {
+	origBackup := mcpBackupFile
+	mcpBackupFile = func(string, string) error { return nil }
+	t.Cleanup(func() { mcpBackupFile = origBackup })
+
 	t.Run("creates opencode.json with 6 MCP entries when file does not exist", func(t *testing.T) {
 		tmpDir := t.TempDir()
 

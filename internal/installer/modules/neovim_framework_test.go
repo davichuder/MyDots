@@ -88,6 +88,10 @@ func TestNeovimFramework_IsInstalled(t *testing.T) {
 func TestNeovimFramework_Install(t *testing.T) {
 	skipIfWindows(t)
 
+	origBackup := zshrcBackupFile
+	zshrcBackupFile = func(string, string) error { return nil }
+	t.Cleanup(func() { zshrcBackupFile = origBackup })
+
 	t.Run("clones repo and appends alias to zshrc", func(t *testing.T) {
 		tmpDir := t.TempDir()
 

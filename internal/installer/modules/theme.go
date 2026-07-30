@@ -20,7 +20,6 @@ import (
 var themeHomeDir = os.UserHomeDir
 var themeReadFile = os.ReadFile
 var themeWriteFile = os.WriteFile
-var themeMkdirAll = os.MkdirAll
 var themeBackupFile = backup.BackupFile
 
 // ---------------------------------------------------------------------------
