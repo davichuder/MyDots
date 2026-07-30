@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"errors"
 	"fmt"
 
 	myerr "github.com/davichuder/MyDots/internal/errors"
@@ -53,9 +54,11 @@ func (m DockerModule) Install(ctx types.InstallContext) error {
 	// Linux — check systemd on WSL2 first.
 	if ctx.Platform.Variant == platform.WSL2 {
 		if err := runner.Run(ctx.Cancel, ctx.Log, "systemctl", "is-system-running"); err != nil {
-			fmt.Fprintln(ctx.Log, "[WARN] systemd is not running on WSL2 — Docker cannot be installed.")
-			fmt.Fprintln(ctx.Log, "[WARN] Enable systemd in your WSL2 distro, or use Docker Desktop for Windows.")
-			return fmt.Errorf("systemd not running on WSL2 — Docker skipped")
+			diagnosticErr := writeDiagnostics(ctx.Log,
+				"[WARN] systemd is not running on WSL2 — Docker cannot be installed.",
+				"[WARN] Enable systemd in your WSL2 distro, or use Docker Desktop for Windows.",
+			)
+			return errors.Join(fmt.Errorf("systemd not running on WSL2 — Docker skipped: %w", err), diagnosticErr)
 		}
 	}
 

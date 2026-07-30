@@ -62,8 +62,12 @@ func (m ClipboardModule) Install(ctx types.InstallContext) error {
 	isWSL2 := ctx.Platform.Variant == platform.WSL2
 
 	if isWSL2 && wayland == "" {
-		fmt.Fprintln(ctx.Log, "[WARN] WSL2 without Wayland (WSLg) detected — clipboard module skipped.")
-		fmt.Fprintln(ctx.Log, "[WARN] Install WSLg or set WAYLAND_DISPLAY to enable clipboard support.")
+		if err := writeDiagnostics(ctx.Log,
+			"[WARN] WSL2 without Wayland (WSLg) detected — clipboard module skipped.",
+			"[WARN] Install WSLg or set WAYLAND_DISPLAY to enable clipboard support.",
+		); err != nil {
+			return fmt.Errorf("write clipboard skip diagnostics: %w", err)
+		}
 		return nil
 	}
 

@@ -53,8 +53,12 @@ func (m GhosttyModule) Install(ctx types.InstallContext) error {
 	if ctx.Platform.Variant == platform.WSL2 {
 		wayland := lookupEnv("WAYLAND_DISPLAY")
 		if wayland == "" {
-			fmt.Fprintln(ctx.Log, "[WARN] WSL2 without Wayland (WSLg) detected — Ghostty cannot be installed.")
-			fmt.Fprintln(ctx.Log, "[WARN] Ghostty requires WSLg to render on WSL2. Install WSLg and try again.")
+			if err := writeDiagnostics(ctx.Log,
+				"[WARN] WSL2 without Wayland (WSLg) detected — Ghostty cannot be installed.",
+				"[WARN] Ghostty requires WSLg to render on WSL2. Install WSLg and try again.",
+			); err != nil {
+				return fmt.Errorf("write Ghostty skip diagnostics: %w", err)
+			}
 			return nil
 		}
 	}
