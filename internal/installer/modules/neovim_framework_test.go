@@ -52,9 +52,7 @@ func TestNeovimFramework_IsInstalled(t *testing.T) {
 	t.Run("framework directory and managed alias return true", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		fwDir := filepath.Join(tmpDir, ".config", "nvim-lazyvim")
-		if err := os.MkdirAll(fwDir, 0755); err != nil {
-			t.Fatal(err)
-		}
+		createFrameworkClone(t, fwDir)
 
 		origHome := nvimHomeDir
 		nvimHomeDir = func() (string, error) { return tmpDir, nil }
@@ -102,9 +100,7 @@ func TestNeovimFramework_Install(t *testing.T) {
 					cloneCmd = append(cloneCmd, args...)
 					// Create target dir to simulate successful clone
 					targetDir := args[len(args)-1]
-					if err := os.MkdirAll(targetDir, 0755); err != nil {
-						return nil, err
-					}
+					createFrameworkClone(t, targetDir)
 					return nil, nil
 				}
 				return nil, errors.New("unexpected command: " + name)
@@ -184,7 +180,7 @@ func TestNeovimFramework_Install(t *testing.T) {
 						if name == "git" && len(args) >= 2 && args[0] == "clone" {
 							cloneArgs = args
 							target := args[len(args)-1]
-							os.MkdirAll(target, 0755)
+							createFrameworkClone(t, target)
 							return nil, nil
 						}
 						return nil, nil
@@ -243,7 +239,7 @@ func TestNeovimFramework_Install(t *testing.T) {
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
 				if name == "git" && len(args) >= 2 && args[0] == "clone" {
 					target := args[len(args)-1]
-					os.MkdirAll(target, 0755)
+					createFrameworkClone(t, target)
 					return nil, nil
 				}
 				return nil, nil
@@ -288,16 +284,64 @@ func TestNeovimFramework_Install(t *testing.T) {
 		}
 	})
 
+	t.Run("complete existing clone is idempotent", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		targetDir := filepath.Join(tmpDir, ".config", "nvim-lazyvim")
+		createFrameworkClone(t, targetDir)
+
+		cloneCalled := false
+		withMockExecutor(t, &mockExecutor{
+			executeFunc: func(_ context.Context, name string, _ ...string) ([]byte, error) {
+				cloneCalled = true
+				return nil, errors.New("unexpected command: " + name)
+			},
+		})
+
+		originalHome := nvimHomeDir
+		nvimHomeDir = func() (string, error) { return tmpDir, nil }
+		t.Cleanup(func() { nvimHomeDir = originalHome })
+
+		originalRead, originalWrite := zshrcReadFile, zshrcWriteFile
+		zshrcReadFile = func(string) ([]byte, error) {
+			return []byte(frameworkAlias(config.NvimFrameworkLazyVim) + "\n"), nil
+		}
+		writeCalled := false
+		zshrcWriteFile = func(string, []byte, os.FileMode) error {
+			writeCalled = true
+			return nil
+		}
+		t.Cleanup(func() { zshrcReadFile, zshrcWriteFile = originalRead, originalWrite })
+
+		ctx := types.InstallContext{Cancel: context.Background(), Log: &bytes.Buffer{}, Config: config.Config{Nvim: config.NvimOptions{Framework: config.NvimFrameworkLazyVim}}}
+		if err := (NeovimFrameworkModule{}).Install(ctx); err != nil {
+			t.Fatalf("Install() = %v, want nil", err)
+		}
+		if cloneCalled {
+			t.Error("Install() attempted to clone an existing complete clone")
+		}
+		if writeCalled {
+			t.Error("Install() rewrote an existing managed alias")
+		}
+	})
+
 	t.Run("git clone failure cleans up target dir", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		targetDir := filepath.Join(tmpDir, ".config", "nvim-lazyvim")
+		cloneAttempts := 0
 
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
 				if name == "git" {
+					cloneAttempts++
 					// Create partial dir to simulate failed clone
-					os.MkdirAll(targetDir, 0755)
-					return nil, errors.New("clone failed")
+					if err := os.MkdirAll(targetDir, 0755); err != nil {
+						return nil, err
+					}
+					if cloneAttempts == 1 {
+						return nil, errors.New("clone failed")
+					}
+					createFrameworkClone(t, targetDir)
+					return nil, nil
 				}
 				return nil, nil
 			},
@@ -338,7 +382,134 @@ func TestNeovimFramework_Install(t *testing.T) {
 		if _, err := os.Stat(targetDir); err == nil {
 			t.Error("target dir should be removed after clone failure")
 		}
+		if err := m.Install(ctx); err != nil {
+			t.Fatalf("retry Install() = %v, want nil", err)
+		}
+		if cloneAttempts != 2 {
+			t.Fatalf("clone attempts after retry = %d, want 2", cloneAttempts)
+		}
 	})
+
+	t.Run("clone failure cleanup joins both errors and leaves retry state explicit", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		targetDir := filepath.Join(tmpDir, ".config", "nvim-lazyvim")
+		cloneErr := errors.New("clone failed")
+		cleanupErr := errors.New("cleanup failed")
+		originalRemoveAll := removeFrameworkDir
+		removeFrameworkDir = func(path string) error {
+			if path != targetDir {
+				t.Fatalf("cleanup path = %q, want %q", path, targetDir)
+			}
+			return cleanupErr
+		}
+		t.Cleanup(func() { removeFrameworkDir = originalRemoveAll })
+
+		withMockExecutor(t, &mockExecutor{
+			executeFunc: func(_ context.Context, name string, _ ...string) ([]byte, error) {
+				if name != "git" {
+					return nil, errors.New("unexpected command: " + name)
+				}
+				if err := os.MkdirAll(targetDir, 0755); err != nil {
+					return nil, err
+				}
+				return nil, cloneErr
+			},
+		})
+
+		originalHome := nvimHomeDir
+		nvimHomeDir = func() (string, error) { return tmpDir, nil }
+		t.Cleanup(func() { nvimHomeDir = originalHome })
+
+		ctx := types.InstallContext{Cancel: context.Background(), Log: &bytes.Buffer{}, Config: config.Config{Nvim: config.NvimOptions{Framework: config.NvimFrameworkLazyVim}}}
+		err := (NeovimFrameworkModule{}).Install(ctx)
+		if !errors.Is(err, cloneErr) {
+			t.Fatalf("Install() error = %v, want clone error", err)
+		}
+		if !errors.Is(err, cleanupErr) {
+			t.Fatalf("Install() error = %v, want cleanup error", err)
+		}
+		if _, statErr := os.Stat(targetDir); statErr != nil {
+			t.Fatalf("partial clone state = %v, want retained directory after cleanup failure", statErr)
+		}
+	})
+
+	t.Run("retry removes partial clone left after cleanup failure before recloning", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		targetDir := filepath.Join(tmpDir, ".config", "nvim-lazyvim")
+		cloneErr := errors.New("clone failed")
+		cleanupErr := errors.New("cleanup failed")
+		cleanupAttempts := 0
+		originalRemoveAll := removeFrameworkDir
+		removeFrameworkDir = func(path string) error {
+			cleanupAttempts++
+			if path != targetDir {
+				t.Fatalf("cleanup path = %q, want %q", path, targetDir)
+			}
+			if cleanupAttempts == 1 {
+				return cleanupErr
+			}
+			return os.RemoveAll(path)
+		}
+		t.Cleanup(func() { removeFrameworkDir = originalRemoveAll })
+
+		cloneAttempts := 0
+		withMockExecutor(t, &mockExecutor{
+			executeFunc: func(_ context.Context, name string, _ ...string) ([]byte, error) {
+				if name != "git" {
+					return nil, errors.New("unexpected command: " + name)
+				}
+				cloneAttempts++
+				if err := os.MkdirAll(targetDir, 0755); err != nil {
+					return nil, err
+				}
+				if cloneAttempts == 1 {
+					return nil, cloneErr
+				}
+				createFrameworkClone(t, targetDir)
+				return nil, nil
+			},
+		})
+
+		originalHome := nvimHomeDir
+		nvimHomeDir = func() (string, error) { return tmpDir, nil }
+		t.Cleanup(func() { nvimHomeDir = originalHome })
+
+		originalRead, originalWrite := zshrcReadFile, zshrcWriteFile
+		zshrcReadFile = func(string) ([]byte, error) { return []byte{}, nil }
+		writeCalls := 0
+		zshrcWriteFile = func(string, []byte, os.FileMode) error {
+			writeCalls++
+			return nil
+		}
+		t.Cleanup(func() { zshrcReadFile, zshrcWriteFile = originalRead, originalWrite })
+
+		ctx := types.InstallContext{Cancel: context.Background(), Log: &bytes.Buffer{}, Config: config.Config{Nvim: config.NvimOptions{Framework: config.NvimFrameworkLazyVim}}}
+		err := (NeovimFrameworkModule{}).Install(ctx)
+		if !errors.Is(err, cloneErr) || !errors.Is(err, cleanupErr) {
+			t.Fatalf("Install() error = %v, want clone and cleanup errors", err)
+		}
+		if writeCalls != 0 {
+			t.Fatalf("alias writes after failed clone = %d, want 0", writeCalls)
+		}
+
+		if err := (NeovimFrameworkModule{}).Install(ctx); err != nil {
+			t.Fatalf("retry Install() = %v, want nil", err)
+		}
+		if cloneAttempts != 2 {
+			t.Errorf("clone attempts = %d, want 2", cloneAttempts)
+		}
+		if cleanupAttempts != 2 {
+			t.Errorf("cleanup attempts = %d, want 2", cleanupAttempts)
+		}
+		if writeCalls != 1 {
+			t.Errorf("alias writes after successful retry = %d, want 1", writeCalls)
+		}
+	})
+}
+
+func createFrameworkClone(t *testing.T, targetDir string) {
+	t.Helper()
+	mustWriteFile(t, filepath.Join(targetDir, ".git", "HEAD"), "ref: refs/heads/main\n")
 }
 
 // --- AuditInfo ---

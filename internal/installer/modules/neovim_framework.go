@@ -2,6 +2,7 @@ package modules
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,6 +37,7 @@ var frameworkDirs = []string{
 var zshrcReadFile = os.ReadFile
 var zshrcWriteFile = atomicWriteFile
 var zshrcBackupFile = backup.BackupFile
+var removeFrameworkDir = os.RemoveAll
 
 // NeovimFrameworkModule implements the Neovim framework (M-19) installation module.
 // It clones the selected framework's starter repo to ~/.config/nvim-<name>
@@ -68,8 +70,8 @@ func (m NeovimFrameworkModule) IsInstalled(p platform.Platform) bool {
 	return m.IsInstalledForConfig(p, config.DefaultConfig())
 }
 
-// IsInstalledForConfig checks the selected framework directory and its managed
-// shell alias.
+// IsInstalledForConfig checks the selected framework clone and its managed shell
+// alias.
 func (m NeovimFrameworkModule) IsInstalledForConfig(_ platform.Platform, cfg config.Config) bool {
 	home, err := nvimHomeDir()
 	if err != nil {
@@ -78,7 +80,8 @@ func (m NeovimFrameworkModule) IsInstalledForConfig(_ platform.Platform, cfg con
 	if _, ok := frameworkRepos[cfg.Nvim.Framework]; !ok {
 		return false
 	}
-	if _, err = os.Stat(filepath.Join(home, ".config", "nvim-"+string(cfg.Nvim.Framework))); err != nil {
+	complete, err := frameworkCloneComplete(filepath.Join(home, ".config", "nvim-"+string(cfg.Nvim.Framework)))
+	if err != nil || !complete {
 		return false
 	}
 	data, err := zshrcReadFile(filepath.Join(home, ".zshrc"))
@@ -102,8 +105,22 @@ func (m NeovimFrameworkModule) Install(ctx types.InstallContext) error {
 	targetDir := filepath.Join(home, ".config", dirName)
 	zshrc := filepath.Join(home, ".zshrc")
 
-	// Step 1: Clone if target dir doesn't exist yet.
-	if _, statErr := os.Stat(targetDir); os.IsNotExist(statErr) {
+	// Step 1: Clone unless the target is already a complete Git clone. An
+	// incomplete target can remain after a prior clone cleanup failure, so remove
+	// it before retrying rather than treating its mere existence as success.
+	complete, err := frameworkCloneComplete(targetDir)
+	if err != nil {
+		return err
+	}
+	if !complete {
+		if _, statErr := os.Lstat(targetDir); statErr == nil {
+			if err := removeFrameworkDir(targetDir); err != nil {
+				return fmt.Errorf("remove incomplete framework clone: %w", err)
+			}
+		} else if !os.IsNotExist(statErr) {
+			return fmt.Errorf("stat framework clone: %w", statErr)
+		}
+
 		// Ensure parent .config dir exists.
 		if err := os.MkdirAll(filepath.Dir(targetDir), 0755); err != nil {
 			return err
@@ -111,8 +128,22 @@ func (m NeovimFrameworkModule) Install(ctx types.InstallContext) error {
 
 		if err := runner.Run(ctx.Cancel, ctx.Log, "git", "clone", repoURL, targetDir); err != nil {
 			// Clean up partial directory left by failed clone.
-			os.RemoveAll(targetDir)
+			if cleanupErr := removeFrameworkDir(targetDir); cleanupErr != nil {
+				return errors.Join(err, fmt.Errorf("remove partial framework clone: %w", cleanupErr))
+			}
 			return err
+		}
+
+		complete, err = frameworkCloneComplete(targetDir)
+		if err != nil {
+			return err
+		}
+		if !complete {
+			cloneErr := errors.New("git clone completed without .git metadata")
+			if cleanupErr := removeFrameworkDir(targetDir); cleanupErr != nil {
+				return errors.Join(cloneErr, fmt.Errorf("remove incomplete framework clone: %w", cleanupErr))
+			}
+			return cloneErr
 		}
 	}
 
@@ -144,6 +175,20 @@ func (m NeovimFrameworkModule) Install(ctx types.InstallContext) error {
 		}
 	}
 	return zshrcWriteFile(zshrc, data, 0644)
+}
+
+// frameworkCloneComplete reports whether targetDir contains the HEAD metadata
+// created by a complete Git clone. A directory alone is not enough: failed
+// clones can leave it behind.
+func frameworkCloneComplete(targetDir string) (bool, error) {
+	_, err := os.Stat(filepath.Join(targetDir, ".git", "HEAD"))
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("check framework clone metadata: %w", err)
 }
 
 func frameworkAlias(fw config.NvimFramework) string {

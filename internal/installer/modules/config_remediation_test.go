@@ -75,9 +75,7 @@ func TestConfiguredStateRejectsStaleSelections(t *testing.T) {
 
 	t.Run("neovim framework requires the selected directory and alias", func(t *testing.T) {
 		home := t.TempDir()
-		if err := os.MkdirAll(filepath.Join(home, ".config", "nvim-lazyvim"), 0755); err != nil {
-			t.Fatal(err)
-		}
+		mustWriteFile(t, filepath.Join(home, ".config", "nvim-lazyvim", ".git", "HEAD"), "ref: refs/heads/main\n")
 		originalHome := nvimHomeDir
 		nvimHomeDir = func() (string, error) { return home, nil }
 		originalRead := zshrcReadFile
@@ -87,7 +85,7 @@ func TestConfiguredStateRejectsStaleSelections(t *testing.T) {
 
 		module := NeovimFrameworkModule{}
 		if !module.IsInstalledForConfig(platform.Platform{}, config.Config{Nvim: config.NvimOptions{Framework: config.NvimFrameworkLazyVim}}) {
-			t.Fatal("expected the selected framework directory to satisfy idempotence")
+			t.Fatal("expected the selected framework clone to satisfy idempotence")
 		}
 		if module.IsInstalledForConfig(platform.Platform{}, config.Config{Nvim: config.NvimOptions{Framework: config.NvimFrameworkAstroNvim}}) {
 			t.Fatal("a different framework directory must not satisfy idempotence")
