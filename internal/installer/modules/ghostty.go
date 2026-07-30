@@ -46,7 +46,7 @@ func (m GhosttyModule) IsInstalled(_ platform.Platform) bool {
 func (m GhosttyModule) Install(ctx types.InstallContext) error {
 	// Darwin: brew cask.
 	if ctx.Platform.OS == platform.Darwin {
-		return runner.BrewCask(ctx.Cancel, ctx.Log, ctx.Platform, "ghostty")
+		return runner.BrewCaskAt(ctx.Cancel, ctx.Log, ctx.Platform, brewPath(ctx), "ghostty")
 	}
 
 	// Linux — check Wayland on WSL2 first.
@@ -61,6 +61,13 @@ func (m GhosttyModule) Install(ctx types.InstallContext) error {
 
 	// Run the embedded Ghostty installation script.
 	return runner.Script(ctx.Cancel, ctx.Log, ctx.Assets, "assets/scripts/ghostty-linux.sh", nil)
+}
+
+func brewPath(ctx types.InstallContext) string {
+	if ctx.BrewPath == nil {
+		return ""
+	}
+	return *ctx.BrewPath
 }
 
 // AuditInfo returns the trimmed output of "ghostty --version".

@@ -13,8 +13,8 @@ import (
 type BrewModule struct {
 	id           ModuleID
 	name         string
-	formula      string   // brew install <formula>
-	checkCommand string   // which binary to check for IsInstalled / AuditInfo
+	formula      string // brew install <formula>
+	checkCommand string // which binary to check for IsInstalled / AuditInfo
 	deps         []ModuleID
 }
 
@@ -40,7 +40,14 @@ func (m BrewModule) IsInstalled(_ platform.Platform) bool {
 // Install runs "brew install <formula>" via runner.Brew, streaming output
 // to the install context's Log writer.
 func (m BrewModule) Install(ctx InstallContext) error {
-	return runner.Brew(ctx.Cancel, ctx.Log, "install", m.formula)
+	return runner.BrewAt(ctx.Cancel, ctx.Log, brewPath(ctx), "install", m.formula)
+}
+
+func brewPath(ctx InstallContext) string {
+	if ctx.BrewPath == nil {
+		return ""
+	}
+	return *ctx.BrewPath
 }
 
 // AuditInfo returns the trimmed output of "<checkCommand> --version".

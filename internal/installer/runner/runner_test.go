@@ -5,10 +5,12 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -251,6 +253,64 @@ func TestBrew(t *testing.T) {
 	}
 }
 
+func TestRefreshBrewAndBrewAt(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform platform.Platform
+		paths    map[string]string
+		wantPath string
+	}{
+		{"Apple Silicon prefix becomes available to dependent brew commands", platform.Platform{OS: platform.Darwin}, map[string]string{"/opt/homebrew/bin/brew": "/opt/homebrew/bin/brew"}, "/opt/homebrew/bin/brew"},
+		{"Linuxbrew prefix becomes available to dependent brew commands", platform.Platform{OS: platform.Linux}, map[string]string{"/home/linuxbrew/.linuxbrew/bin/brew": "/home/linuxbrew/.linuxbrew/bin/brew"}, "/home/linuxbrew/.linuxbrew/bin/brew"},
+		{"supported discovered prefix is used before fallback prefixes", platform.Platform{OS: platform.Darwin}, map[string]string{"brew": "/custom/homebrew/bin/brew"}, "/custom/homebrew/bin/brew"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var command string
+			var args []string
+			withExecutor(t, &mockExecutor{
+				lookPathFunc: func(name string) (string, error) {
+					if path, ok := tt.paths[name]; ok {
+						return path, nil
+					}
+					return "", errors.New("not found")
+				},
+				executeFunc: func(_ context.Context, name string, gotArgs ...string) ([]byte, error) {
+					command, args = name, gotArgs
+					return nil, nil
+				},
+			})
+
+			brewPath, err := RefreshBrew(tt.platform)
+			if err != nil {
+				t.Fatalf("RefreshBrew() = %v", err)
+			}
+			if brewPath != tt.wantPath {
+				t.Fatalf("RefreshBrew() = %q, want %q", brewPath, tt.wantPath)
+			}
+			pathRef := ""
+			session := WithBrewPath(context.Background(), &pathRef)
+			pathRef = brewPath // Homebrew completes after the installation session starts.
+			if err := Brew(session, io.Discard, "install", "zoxide"); err != nil {
+				t.Fatalf("Brew() = %v", err)
+			}
+			if command != tt.wantPath || !slices.Equal(args, []string{"install", "zoxide"}) {
+				t.Errorf("dependent command = %q %v, want %q %v", command, args, tt.wantPath, []string{"install", "zoxide"})
+			}
+		})
+	}
+}
+
+func TestRefreshBrewReturnsErrorWhenNoSupportedPrefixExists(t *testing.T) {
+	withExecutor(t, &mockExecutor{
+		lookPathFunc: func(string) (string, error) { return "", errors.New("not found") },
+	})
+	if _, err := RefreshBrew(platform.Platform{OS: platform.Linux}); err == nil {
+		t.Fatal("RefreshBrew() returned nil when brew was not discoverable")
+	}
+}
+
 // --- BrewCask ---
 
 func TestBrewCask(t *testing.T) {
@@ -278,6 +338,45 @@ func TestBrewCask(t *testing.T) {
 		}
 		if len(capturedArgs) != 3 || capturedArgs[0] != "install" || capturedArgs[1] != "--cask" || capturedArgs[2] != "ghostty" {
 			t.Errorf("expected args ['install', '--cask', 'ghostty'], got: %v", capturedArgs)
+		}
+	})
+
+	t.Run("uses the session brew path and preserves cask argv", func(t *testing.T) {
+		var capturedName string
+		var capturedArgs []string
+		withExecutor(t, &mockExecutor{
+			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+				capturedName = name
+				capturedArgs = args
+				return nil, nil
+			},
+		})
+
+		brewPath := "/opt/homebrew/bin/brew"
+		ctx := WithBrewPath(context.Background(), &brewPath)
+		if err := BrewCask(ctx, io.Discard, platform.Platform{OS: platform.Darwin}, "font-jetbrains-mono-nerd-font"); err != nil {
+			t.Fatalf("BrewCask() = %v", err)
+		}
+		if capturedName != brewPath || !slices.Equal(capturedArgs, []string{"install", "--cask", "font-jetbrains-mono-nerd-font"}) {
+			t.Errorf("command = %q %v, want %q %v", capturedName, capturedArgs, brewPath, []string{"install", "--cask", "font-jetbrains-mono-nerd-font"})
+		}
+	})
+
+	t.Run("propagates cask failure from the session brew path", func(t *testing.T) {
+		caskErr := errors.New("cask failed")
+		withExecutor(t, &mockExecutor{
+			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+				if name != "/opt/homebrew/bin/brew" || !slices.Equal(args, []string{"install", "--cask", "ghostty"}) {
+					t.Errorf("command = %q %v, want %q %v", name, args, "/opt/homebrew/bin/brew", []string{"install", "--cask", "ghostty"})
+				}
+				return nil, caskErr
+			},
+		})
+
+		brewPath := "/opt/homebrew/bin/brew"
+		ctx := WithBrewPath(context.Background(), &brewPath)
+		if err := BrewCask(ctx, io.Discard, platform.Platform{OS: platform.Darwin}, "ghostty"); !errors.Is(err, caskErr) {
+			t.Errorf("BrewCask() = %v, want %v", err, caskErr)
 		}
 	})
 
@@ -322,6 +421,33 @@ func TestBrewTap(t *testing.T) {
 		if call != expectedCmds[i] {
 			t.Errorf("call %d: expected %q, got %q", i, expectedCmds[i], call)
 		}
+	}
+}
+
+func TestBrewTapUsesSessionPathAndPropagatesTapFailure(t *testing.T) {
+	tapErr := errors.New("tap failed")
+	var calls []struct {
+		name string
+		args []string
+	}
+	withExecutor(t, &mockExecutor{
+		executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			calls = append(calls, struct {
+				name string
+				args []string
+			}{name: name, args: args})
+			return nil, tapErr
+		},
+	})
+
+	brewPath := "/opt/homebrew/bin/brew"
+	ctx := WithBrewPath(context.Background(), &brewPath)
+	err := BrewTap(ctx, io.Discard, "Gentleman-Programming/homebrew-tap", "gentle-ai")
+	if !errors.Is(err, tapErr) {
+		t.Fatalf("BrewTap() = %v, want %v", err, tapErr)
+	}
+	if len(calls) != 1 || calls[0].name != brewPath || !slices.Equal(calls[0].args, []string{"tap", "Gentleman-Programming/homebrew-tap"}) {
+		t.Errorf("calls = %#v, want one %q %v call", calls, brewPath, []string{"tap", "Gentleman-Programming/homebrew-tap"})
 	}
 }
 

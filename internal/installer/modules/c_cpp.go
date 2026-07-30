@@ -6,9 +6,9 @@ package modules
 import (
 	"fmt"
 
+	myerr "github.com/davichuder/MyDots/internal/errors"
 	"github.com/davichuder/MyDots/internal/installer/runner"
 	"github.com/davichuder/MyDots/internal/installer/types"
-	myerr "github.com/davichuder/MyDots/internal/errors"
 	"github.com/davichuder/MyDots/internal/platform"
 )
 
@@ -34,7 +34,9 @@ func (m CppToolchainModule) Name() string { return "C++ Toolchain" }
 func (m CppToolchainModule) Criticality() types.Criticality { return types.NonCritical }
 
 // Dependencies returns Homebrew as a dependency (some tools are installed via brew on Darwin).
-func (m CppToolchainModule) Dependencies() []types.ModuleID { return []types.ModuleID{types.ModHomebrew} }
+func (m CppToolchainModule) Dependencies() []types.ModuleID {
+	return []types.ModuleID{types.ModHomebrew}
+}
 
 // IsInstalled checks whether the C/C++ toolchain is available on PATH.
 // On Darwin it checks for clangd; on Linux (Native and WSL2) it checks for gcc.
@@ -50,7 +52,7 @@ func (m CppToolchainModule) IsInstalled(p platform.Platform) bool {
 // On Linux (both Native and WSL2): installs build-essential, gdb, and cmake via apt.
 func (m CppToolchainModule) Install(ctx types.InstallContext) error {
 	if ctx.Platform.OS == platform.Darwin {
-		return runner.Brew(ctx.Cancel, ctx.Log, "install", "gcc", "cmake", "llvm")
+		return runner.BrewAt(ctx.Cancel, ctx.Log, brewPath(ctx), "install", "gcc", "cmake", "llvm")
 	}
 
 	// Linux (both Native and WSL2) — install via apt.

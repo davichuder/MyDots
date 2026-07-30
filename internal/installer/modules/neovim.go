@@ -81,7 +81,7 @@ func (m NeovimModule) IsInstalled(_ platform.Platform) bool {
 func (m NeovimModule) Install(ctx types.InstallContext) error {
 	// Step 1: Install nvim binary if not present.
 	if !runner.CommandExists("nvim") {
-		if err := runner.Brew(ctx.Cancel, ctx.Log, "install", "neovim"); err != nil {
+		if err := runner.BrewAt(ctx.Cancel, ctx.Log, brewPath(ctx), "install", "neovim"); err != nil {
 			return err
 		}
 	}

@@ -68,9 +68,9 @@ func (m ClipboardModule) Install(ctx types.InstallContext) error {
 	}
 
 	if wayland != "" {
-		return runner.Brew(ctx.Cancel, ctx.Log, "install", "wl-clipboard")
+		return runner.BrewAt(ctx.Cancel, ctx.Log, brewPath(ctx), "install", "wl-clipboard")
 	}
-	return runner.Brew(ctx.Cancel, ctx.Log, "install", "xclip")
+	return runner.BrewAt(ctx.Cancel, ctx.Log, brewPath(ctx), "install", "xclip")
 }
 
 // AuditInfo returns version info about the installed clipboard tool.

@@ -125,6 +125,13 @@ type ConfiguredStateModule interface {
 	IsInstalledForConfig(p platform.Platform, cfg config.Config) bool
 }
 
+// ContextConfiguredStateModule is an optional extension for configured-state
+// probes that need installation-session state, such as a freshly discovered
+// Homebrew executable.
+type ContextConfiguredStateModule interface {
+	IsInstalledForContext(ctx InstallContext) bool
+}
+
 // InstallContext bundles shared state for an entire install session.
 // It is passed to every Module.Install() call so that all modules
 // share the same platform, config, timestamp, log writer, cancellation
@@ -152,4 +159,9 @@ type InstallContext struct {
 	// In production this is set to the main package's embed.FS; in tests it can be
 	// replaced with a fstest.MapFS.
 	Assets fs.FS
+
+	// BrewPath is shared by an installation session. Homebrew sets it after a
+	// fresh install so dependent modules invoke the discovered executable
+	// without mutating the process-wide PATH.
+	BrewPath *string
 }

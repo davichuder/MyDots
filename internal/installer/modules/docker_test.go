@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -77,8 +78,6 @@ func TestDocker_IsInstalled(t *testing.T) {
 // --- Install ---
 
 func TestDocker_Install(t *testing.T) {
-	skipIfWindows(t)
-
 	successScript := fstest.MapFS{
 		"assets/scripts/docker-linux.sh": &fstest.MapFile{
 			Data: []byte("#!/bin/sh\nexit 0"),
@@ -93,10 +92,13 @@ func TestDocker_Install(t *testing.T) {
 	}
 
 	t.Run("darwin installs via brew cask", func(t *testing.T) {
+		brewPath := "/opt/homebrew/bin/brew"
+		var brewCommand string
 		var brewArgs []string
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
-				if name == "brew" {
+				if name == brewPath {
+					brewCommand = name
 					brewArgs = args
 					return nil, nil
 				}
@@ -108,17 +110,20 @@ func TestDocker_Install(t *testing.T) {
 			Cancel:   context.Background(),
 			Log:      &bytes.Buffer{},
 			Platform: platform.Platform{OS: platform.Darwin, Variant: platform.Native},
+			BrewPath: &brewPath,
 		}
 		m := DockerModule{}
 		if err := m.Install(ctx); err != nil {
 			t.Fatalf("Install() = %v, want nil", err)
 		}
-		if len(brewArgs) < 2 || brewArgs[0] != "--cask" || brewArgs[1] != "docker-desktop" {
-			t.Errorf("expected brew --cask docker-desktop, got brew %v", brewArgs)
+		want := []string{"install", "--cask", "docker-desktop"}
+		if brewCommand != brewPath || !slices.Equal(brewArgs, want) {
+			t.Errorf("brew command = %q %v, want %q %v", brewCommand, brewArgs, brewPath, want)
 		}
 	})
 
 	t.Run("ubuntu native runs docker-linux.sh script", func(t *testing.T) {
+		skipIfWindows(t)
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
 				return nil, errors.New("unexpected command: " + name)
@@ -138,6 +143,7 @@ func TestDocker_Install(t *testing.T) {
 	})
 
 	t.Run("wsl2 with systemd runs docker-linux.sh script", func(t *testing.T) {
+		skipIfWindows(t)
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
 				if name == "systemctl" {
@@ -186,6 +192,7 @@ func TestDocker_Install(t *testing.T) {
 	})
 
 	t.Run("apt repo failure returns AptInstallError", func(t *testing.T) {
+		skipIfWindows(t)
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
 				return nil, errors.New("unexpected command: " + name)

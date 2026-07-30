@@ -6,9 +6,9 @@ package modules
 import (
 	"fmt"
 
+	myerr "github.com/davichuder/MyDots/internal/errors"
 	"github.com/davichuder/MyDots/internal/installer/runner"
 	"github.com/davichuder/MyDots/internal/installer/types"
-	myerr "github.com/davichuder/MyDots/internal/errors"
 	"github.com/davichuder/MyDots/internal/platform"
 )
 
@@ -22,6 +22,8 @@ var _ types.Module = HomebrewModule{}
 
 // Homebrew is the exported package-level instance used by the catalogue.
 var Homebrew types.Module = HomebrewModule{}
+
+var runHomebrewScript = runner.Script
 
 // ID returns the stable module identifier M-01.
 func (m HomebrewModule) ID() types.ModuleID { return types.ModHomebrew }
@@ -44,9 +46,16 @@ func (m HomebrewModule) IsInstalled(_ platform.Platform) bool {
 // ctx.Assets provides the embedded filesystem (set by the main package).
 // Returns a CurlScriptError if the script exits with a non-zero code.
 func (m HomebrewModule) Install(ctx types.InstallContext) error {
-	err := runner.Script(ctx.Cancel, ctx.Log, ctx.Assets, "assets/scripts/homebrew-install.sh", nil)
+	err := runHomebrewScript(ctx.Cancel, ctx.Log, ctx.Assets, "assets/scripts/homebrew-install.sh", nil)
 	if err != nil {
 		return wrapScriptError(err)
+	}
+	brewPath, err := runner.RefreshBrew(ctx.Platform)
+	if err != nil {
+		return fmt.Errorf("discover Homebrew after installation: %w", err)
+	}
+	if ctx.BrewPath != nil {
+		*ctx.BrewPath = brewPath
 	}
 	return nil
 }

@@ -3,9 +3,9 @@ package modules
 import (
 	"fmt"
 
+	myerr "github.com/davichuder/MyDots/internal/errors"
 	"github.com/davichuder/MyDots/internal/installer/runner"
 	"github.com/davichuder/MyDots/internal/installer/types"
-	myerr "github.com/davichuder/MyDots/internal/errors"
 	"github.com/davichuder/MyDots/internal/platform"
 )
 
@@ -47,7 +47,7 @@ func (m DockerModule) IsInstalled(_ platform.Platform) bool {
 func (m DockerModule) Install(ctx types.InstallContext) error {
 	// Darwin: brew cask.
 	if ctx.Platform.OS == platform.Darwin {
-		return runner.BrewCask(ctx.Cancel, ctx.Log, ctx.Platform, "docker-desktop")
+		return runner.BrewCaskAt(ctx.Cancel, ctx.Log, ctx.Platform, brewPath(ctx), "docker-desktop")
 	}
 
 	// Linux — check systemd on WSL2 first.

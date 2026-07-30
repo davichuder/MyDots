@@ -44,12 +44,12 @@ func (m ZshModule) IsInstalled(_ platform.Platform) bool {
 // and changes the default shell for the current user.
 func (m ZshModule) Install(ctx types.InstallContext) error {
 	// Step 1: Install zsh via Homebrew.
-	if err := runner.Brew(ctx.Cancel, ctx.Log, "install", "zsh"); err != nil {
+	if err := runner.BrewAt(ctx.Cancel, ctx.Log, brewPath(ctx), "install", "zsh"); err != nil {
 		return err
 	}
 
 	// Step 2: Get the Homebrew prefix to construct the zsh binary path.
-	prefix, err := runner.CaptureOutputError("brew", "--prefix")
+	prefix, err := runner.CaptureOutputErrorAt(brewPath(ctx), "--prefix")
 	if err != nil {
 		return err
 	}

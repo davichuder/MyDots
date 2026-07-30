@@ -91,5 +91,8 @@ type Module = types.Module
 // ConfiguredStateModule is the optional configuration-aware idempotence contract.
 type ConfiguredStateModule = types.ConfiguredStateModule
 
+// ContextConfiguredStateModule is the optional session-aware configured-state contract.
+type ContextConfiguredStateModule = types.ContextConfiguredStateModule
+
 // InstallContext bundles shared state for an entire install session.
 type InstallContext = types.InstallContext

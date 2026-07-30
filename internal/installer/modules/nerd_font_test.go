@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,6 +53,35 @@ func TestNerdFont_Dependencies(t *testing.T) {
 // --- IsInstalled ---
 
 func TestNerdFont_IsInstalled(t *testing.T) {
+	t.Run("darwin configured state uses session discovered brew path", func(t *testing.T) {
+		home := t.TempDir()
+		mustWriteFile(t, filepath.Join(home, ".config", "ghostty", "config"), ghosttyFontBlock(config.DefaultConfig().Font))
+		originalHome := nerdFontHomeDir
+		nerdFontHomeDir = func() (string, error) { return home, nil }
+		t.Cleanup(func() { nerdFontHomeDir = originalHome })
+
+		brewPath := "/opt/homebrew/bin/brew"
+		var command string
+		var gotArgs []string
+		withMockExecutor(t, &mockExecutor{
+			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+				command, gotArgs = name, args
+				return []byte("font-jetbrains-mono-nerd-font\n"), nil
+			},
+		})
+
+		if !(NerdFontModule{}).IsInstalledForContext(types.InstallContext{
+			Platform: platform.Platform{OS: platform.Darwin},
+			Config:   config.DefaultConfig(),
+			BrewPath: &brewPath,
+		}) {
+			t.Fatal("IsInstalledForContext() = false, want true")
+		}
+		if command != brewPath || !slices.Equal(gotArgs, []string{"list", "--cask"}) {
+			t.Errorf("probe = %q %v, want %q %v", command, gotArgs, brewPath, []string{"list", "--cask"})
+		}
+	})
+
 	t.Run("darwin font cask listed returns true", func(t *testing.T) {
 		home := t.TempDir()
 		mustWriteFile(t, filepath.Join(home, ".config", "ghostty", "config"), ghosttyFontBlock(config.DefaultConfig().Font))
@@ -122,14 +152,14 @@ func TestNerdFont_IsInstalled(t *testing.T) {
 // --- Install ---
 
 func TestNerdFont_Install(t *testing.T) {
-	skipIfWindows(t)
-
 	t.Run("darwin installs via brew cask with correct name", func(t *testing.T) {
-		var caskName string
+		brewPath := "/opt/homebrew/bin/brew"
+		var command string
+		var gotArgs []string
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
-				if name == "brew" && len(args) >= 2 && args[0] == "--cask" {
-					caskName = args[1]
+				if name == brewPath {
+					command, gotArgs = name, args
 					return nil, nil
 				}
 				return nil, errors.New("unexpected command: " + name)
@@ -142,13 +172,43 @@ func TestNerdFont_Install(t *testing.T) {
 			Platform:         platform.Platform{OS: platform.Darwin},
 			Config:           config.Config{Font: config.FontJetBrainsMono},
 			SessionTimestamp: "test-ts",
+			BrewPath:         &brewPath,
 		}
 		m := NerdFontModule{}
 		if err := m.Install(ctx); err != nil {
 			t.Fatalf("Install() = %v, want nil", err)
 		}
-		if caskName != "font-jetbrains-mono-nerd-font" {
-			t.Errorf("cask name = %q, want %q", caskName, "font-jetbrains-mono-nerd-font")
+		want := []string{"install", "--cask", "font-jetbrains-mono-nerd-font"}
+		if command != brewPath || !slices.Equal(gotArgs, want) {
+			t.Errorf("brew command = %q %v, want %q %v", command, gotArgs, brewPath, want)
+		}
+	})
+
+	t.Run("darwin returns cask failure from discovered brew path", func(t *testing.T) {
+		brewPath := "/opt/homebrew/bin/brew"
+		caskErr := errors.New("cask install failed")
+		var command string
+		var gotArgs []string
+		withMockExecutor(t, &mockExecutor{
+			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+				command, gotArgs = name, args
+				return nil, caskErr
+			},
+		})
+
+		err := (NerdFontModule{}).Install(types.InstallContext{
+			Cancel:   context.Background(),
+			Log:      &bytes.Buffer{},
+			Platform: platform.Platform{OS: platform.Darwin},
+			Config:   config.Config{Font: config.FontJetBrainsMono},
+			BrewPath: &brewPath,
+		})
+		if !errors.Is(err, caskErr) {
+			t.Fatalf("Install() = %v, want %v", err, caskErr)
+		}
+		want := []string{"install", "--cask", "font-jetbrains-mono-nerd-font"}
+		if command != brewPath || !slices.Equal(gotArgs, want) {
+			t.Errorf("brew command = %q %v, want %q %v", command, gotArgs, brewPath, want)
 		}
 	})
 
@@ -165,11 +225,13 @@ func TestNerdFont_Install(t *testing.T) {
 		}
 		for _, tc := range cases {
 			t.Run(string(tc.font), func(t *testing.T) {
-				var caskName string
+				brewPath := "/opt/homebrew/bin/brew"
+				var command string
+				var gotArgs []string
 				withMockExecutor(t, &mockExecutor{
 					executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
-						if name == "brew" && len(args) >= 2 && args[0] == "--cask" {
-							caskName = args[1]
+						if name == brewPath {
+							command, gotArgs = name, args
 							return nil, nil
 						}
 						return nil, nil
@@ -181,13 +243,15 @@ func TestNerdFont_Install(t *testing.T) {
 					Platform:         platform.Platform{OS: platform.Darwin},
 					Config:           config.Config{Font: tc.font},
 					SessionTimestamp: "test-ts",
+					BrewPath:         &brewPath,
 				}
 				m := NerdFontModule{}
 				if err := m.Install(ctx); err != nil {
 					t.Fatalf("Install(%s) = %v, want nil", tc.font, err)
 				}
-				if caskName != tc.wantCask {
-					t.Errorf("cask = %q, want %q", caskName, tc.wantCask)
+				want := []string{"install", "--cask", tc.wantCask}
+				if command != brewPath || !slices.Equal(gotArgs, want) {
+					t.Errorf("brew command = %q %v, want %q %v", command, gotArgs, brewPath, want)
 				}
 			})
 		}

@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/davichuder/MyDots/internal/config"
+	"github.com/davichuder/MyDots/internal/installer/modules"
+	"github.com/davichuder/MyDots/internal/installer/runner"
 	"github.com/davichuder/MyDots/internal/platform"
 )
 
@@ -35,6 +38,26 @@ func (m *testModule) AuditInfo() string                  { return m.auditInfo }
 type configuredTestModule struct {
 	testModule
 	installedForConfig bool
+}
+
+// freshHomebrewHandoffModule models the post-install portion of HomebrewModule
+// without running its embedded shell script. The module test covers the script
+// boundary; this executor test covers the shared-session handoff it enables.
+type freshHomebrewHandoffModule struct{}
+
+func (freshHomebrewHandoffModule) ID() ModuleID                       { return ModHomebrew }
+func (freshHomebrewHandoffModule) Name() string                       { return "Homebrew" }
+func (freshHomebrewHandoffModule) Criticality() Criticality           { return Critical }
+func (freshHomebrewHandoffModule) Dependencies() []ModuleID           { return nil }
+func (freshHomebrewHandoffModule) IsInstalled(platform.Platform) bool { return false }
+func (freshHomebrewHandoffModule) AuditInfo() string                  { return "" }
+func (freshHomebrewHandoffModule) Install(ctx InstallContext) error {
+	path, err := runner.RefreshBrew(ctx.Platform)
+	if err != nil {
+		return err
+	}
+	*ctx.BrewPath = path
+	return nil
 }
 
 func (m *configuredTestModule) IsInstalledForConfig(platform.Platform, config.Config) bool {
@@ -155,6 +178,130 @@ func TestRun_ConfiguredModuleReconcilesStaleState(t *testing.T) {
 	}
 	assertEvent(t, events[0], "M-46", "running", false)
 	assertEvent(t, events[1], "M-46", StatusInstalled, false)
+}
+
+func TestRun_FreshHomebrewHandoffUsesDiscoveredPathForChangedBrewModules(t *testing.T) {
+	t.Setenv("WAYLAND_DISPLAY", "test-wayland")
+
+	const discoveredBrew = "/test/homebrew/bin/brew"
+	tests := []struct {
+		name       string
+		platform   platform.Platform
+		module     Module
+		wantBrew   [][]string
+		failBrewAt int
+	}{
+		{
+			name:     "BrewModule",
+			platform: platform.Platform{OS: platform.Darwin},
+			module:   BrewModule{id: ModZoxide, name: "zoxide", formula: "zoxide", checkCommand: "zoxide", deps: []ModuleID{ModHomebrew}},
+			wantBrew: [][]string{{"install", "zoxide"}},
+		},
+		{
+			name:     "C++",
+			platform: platform.Platform{OS: platform.Darwin},
+			module:   modules.CppToolchainModule{},
+			wantBrew: [][]string{{"install", "gcc", "cmake", "llvm"}},
+		},
+		{
+			name:     "Clipboard",
+			platform: platform.Platform{OS: platform.Linux, Variant: platform.Native},
+			module:   modules.ClipboardModule{},
+			wantBrew: [][]string{{"install", "wl-clipboard"}},
+		},
+		{
+			name:       "Neovim",
+			platform:   platform.Platform{OS: platform.Darwin},
+			module:     modules.NeovimModule{},
+			wantBrew:   [][]string{{"install", "neovim"}},
+			failBrewAt: 1,
+		},
+		{
+			name:       "Zsh",
+			platform:   platform.Platform{OS: platform.Darwin},
+			module:     modules.ZshModule{},
+			wantBrew:   [][]string{{"install", "zsh"}},
+			failBrewAt: 1,
+		},
+		{
+			name:       "NerdFont cask and configured-state probe",
+			platform:   platform.Platform{OS: platform.Darwin},
+			module:     modules.NerdFontModule{},
+			wantBrew:   [][]string{{"list", "--cask"}, {"install", "--cask", "font-jetbrains-mono-nerd-font"}},
+			failBrewAt: 2,
+		},
+		{
+			name:       "Ghostty cask",
+			platform:   platform.Platform{OS: platform.Darwin},
+			module:     modules.GhosttyModule{},
+			wantBrew:   [][]string{{"install", "--cask", "ghostty"}},
+			failBrewAt: 1,
+		},
+		{
+			name:       "Docker cask",
+			platform:   platform.Platform{OS: platform.Darwin},
+			module:     modules.DockerModule{},
+			wantBrew:   [][]string{{"install", "--cask", "docker-desktop"}},
+			failBrewAt: 1,
+		},
+		{
+			name:     "GentleAI tap and install",
+			platform: platform.Platform{OS: platform.Darwin},
+			module:   modules.GentleAiModule{},
+			wantBrew: [][]string{{"tap", "Gentleman-Programming/homebrew-tap"}, {"install", "gentle-ai"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls []struct {
+				name string
+				args []string
+			}
+			setMockRunner(t, &mockExecutor{
+				lookPathFunc: func(name string) (string, error) {
+					if name == "brew" {
+						return discoveredBrew, nil
+					}
+					return "", errors.New("not found")
+				},
+				executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+					if name != discoveredBrew {
+						return nil, errors.New("unexpected command: " + name)
+					}
+					calls = append(calls, struct {
+						name string
+						args []string
+					}{name: name, args: args})
+					if tt.failBrewAt == len(calls) {
+						return nil, errors.New("stop after brew command")
+					}
+					return nil, nil
+				},
+			})
+
+			plan := []Module{
+				freshHomebrewHandoffModule{},
+				tt.module,
+			}
+			ctx := defaultContext()
+			ctx.Platform = tt.platform
+			ctx.Config = config.DefaultConfig()
+			ch := make(chan ProgressEvent, 4)
+			go Run(plan, ctx, ch)
+			for range ch {
+			}
+
+			if len(calls) != len(tt.wantBrew) {
+				t.Fatalf("brew calls = %#v, want %d calls", calls, len(tt.wantBrew))
+			}
+			for i, wantArgs := range tt.wantBrew {
+				if calls[i].name != discoveredBrew || !slices.Equal(calls[i].args, wantArgs) {
+					t.Errorf("brew call %d = %q %v, want %q %v", i, calls[i].name, calls[i].args, discoveredBrew, wantArgs)
+				}
+			}
+		})
+	}
 }
 
 func TestRun_DirectDependencyFailed(t *testing.T) {

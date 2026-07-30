@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"os/exec"
 	"runtime"
+	"slices"
+	"strings"
 	"testing"
 	"testing/fstest"
 
+	myerr "github.com/davichuder/MyDots/internal/errors"
 	"github.com/davichuder/MyDots/internal/installer/runner"
 	"github.com/davichuder/MyDots/internal/installer/types"
-	myerr "github.com/davichuder/MyDots/internal/errors"
 	"github.com/davichuder/MyDots/internal/platform"
 )
 
@@ -133,6 +137,9 @@ func TestHomebrew_Install(t *testing.T) {
 	skipIfWindows(t)
 
 	t.Run("runs script on darwin", func(t *testing.T) {
+		withMockExecutor(t, &mockExecutor{
+			lookPathFunc: func(name string) (string, error) { return "/opt/homebrew/bin/" + name, nil },
+		})
 		mapFS := fstest.MapFS{
 			"assets/scripts/homebrew-install.sh": &fstest.MapFile{
 				Data: []byte("#!/bin/sh\nexit 0"),
@@ -140,9 +147,10 @@ func TestHomebrew_Install(t *testing.T) {
 			},
 		}
 		ctx := types.InstallContext{
-			Cancel: context.Background(),
-			Log:    &bytes.Buffer{},
-			Assets: mapFS,
+			Cancel:   context.Background(),
+			Log:      &bytes.Buffer{},
+			Assets:   mapFS,
+			Platform: platform.Platform{OS: platform.Darwin},
 		}
 		h := HomebrewModule{}
 		err := h.Install(ctx)
@@ -152,6 +160,9 @@ func TestHomebrew_Install(t *testing.T) {
 	})
 
 	t.Run("runs script on linux", func(t *testing.T) {
+		withMockExecutor(t, &mockExecutor{
+			lookPathFunc: func(name string) (string, error) { return "/home/linuxbrew/.linuxbrew/bin/" + name, nil },
+		})
 		mapFS := fstest.MapFS{
 			"assets/scripts/homebrew-install.sh": &fstest.MapFile{
 				Data: []byte("#!/bin/sh\nexit 0"),
@@ -159,9 +170,10 @@ func TestHomebrew_Install(t *testing.T) {
 			},
 		}
 		ctx := types.InstallContext{
-			Cancel: context.Background(),
-			Log:    &bytes.Buffer{},
-			Assets: mapFS,
+			Cancel:   context.Background(),
+			Log:      &bytes.Buffer{},
+			Assets:   mapFS,
+			Platform: platform.Platform{OS: platform.Linux},
 		}
 		h := HomebrewModule{}
 		err := h.Install(ctx)
@@ -205,6 +217,65 @@ func TestHomebrew_Install(t *testing.T) {
 			t.Error("Fix() should not be empty")
 		}
 	})
+}
+
+func TestHomebrew_InstallRefreshesBrewForDependentCommands(t *testing.T) {
+	originalScript := runHomebrewScript
+	runHomebrewScript = func(context.Context, io.Writer, fs.FS, string, map[string]string) error { return nil }
+	t.Cleanup(func() { runHomebrewScript = originalScript })
+
+	var command string
+	var args []string
+	withMockExecutor(t, &mockExecutor{
+		lookPathFunc: func(name string) (string, error) {
+			if name == "/opt/homebrew/bin/brew" {
+				return name, nil
+			}
+			return "", errors.New("not found")
+		},
+		executeFunc: func(_ context.Context, name string, gotArgs ...string) ([]byte, error) {
+			command, args = name, gotArgs
+			return nil, nil
+		},
+	})
+
+	brewPath := ""
+	session := runner.WithBrewPath(context.Background(), &brewPath)
+	ctx := types.InstallContext{
+		Cancel:   session,
+		Log:      &bytes.Buffer{},
+		Platform: platform.Platform{OS: platform.Darwin},
+		BrewPath: &brewPath,
+	}
+	if err := (HomebrewModule{}).Install(ctx); err != nil {
+		t.Fatalf("Install() = %v", err)
+	}
+	if err := runner.Brew(ctx.Cancel, ctx.Log, "install", "zoxide"); err != nil {
+		t.Fatalf("dependent Brew() = %v", err)
+	}
+	if command != "/opt/homebrew/bin/brew" || !slices.Equal(args, []string{"install", "zoxide"}) {
+		t.Errorf("dependent brew command = %q %v, want %q %v", command, args, "/opt/homebrew/bin/brew", []string{"install", "zoxide"})
+	}
+}
+
+func TestHomebrew_InstallReturnsErrorWhenBrewCannotBeDiscovered(t *testing.T) {
+	originalScript := runHomebrewScript
+	runHomebrewScript = func(context.Context, io.Writer, fs.FS, string, map[string]string) error { return nil }
+	t.Cleanup(func() { runHomebrewScript = originalScript })
+
+	withMockExecutor(t, &mockExecutor{
+		lookPathFunc: func(string) (string, error) { return "", errors.New("not found") },
+	})
+
+	err := (HomebrewModule{}).Install(types.InstallContext{
+		Cancel:   context.Background(),
+		Log:      &bytes.Buffer{},
+		Platform: platform.Platform{OS: platform.Linux},
+		BrewPath: new(string),
+	})
+	if err == nil || !strings.Contains(err.Error(), "discover Homebrew") {
+		t.Fatalf("Install() = %v, want discovery failure", err)
+	}
 }
 
 // --- AuditInfo ---

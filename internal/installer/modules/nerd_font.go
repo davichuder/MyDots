@@ -85,15 +85,25 @@ func (m NerdFontModule) IsInstalled(p platform.Platform) bool {
 // IsInstalledForConfig checks the configured font and, when Ghostty is
 // configured, its managed Ghostty configuration block.
 func (m NerdFontModule) IsInstalledForConfig(p platform.Platform, cfg config.Config) bool {
+	return m.isInstalledForConfig(types.InstallContext{Platform: p, Config: cfg})
+}
+
+// IsInstalledForContext checks configured state using the current installation
+// session, including a Homebrew executable discovered during that session.
+func (m NerdFontModule) IsInstalledForContext(ctx types.InstallContext) bool {
+	return m.isInstalledForConfig(ctx)
+}
+
+func (m NerdFontModule) isInstalledForConfig(ctx types.InstallContext) bool {
 	fontInstalled := false
-	if p.OS == platform.Darwin {
-		out := runner.CaptureOutput("brew", "list", "--cask")
-		cask, ok := nerdFontCaskName[cfg.Font]
+	if ctx.Platform.OS == platform.Darwin {
+		out := runner.CaptureOutputAt(brewPath(ctx), "list", "--cask")
+		cask, ok := nerdFontCaskName[ctx.Config.Font]
 		fontInstalled = ok && strings.Contains(out, cask)
 	} else {
 		// Linux — check fontconfig for the selected Nerd Font.
 		out := runner.CaptureOutput("fc-list")
-		fontInstalled = strings.Contains(out, string(cfg.Font)+" Nerd Font")
+		fontInstalled = strings.Contains(out, string(ctx.Config.Font)+" Nerd Font")
 	}
 
 	if !fontInstalled {
@@ -108,7 +118,7 @@ func (m NerdFontModule) IsInstalledForConfig(p platform.Platform, cfg config.Con
 	if os.IsNotExist(err) {
 		return true
 	}
-	return err == nil && ghosttyFontBlockMatches(data, cfg.Font)
+	return err == nil && ghosttyFontBlockMatches(data, ctx.Config.Font)
 }
 
 // Install installs the selected Nerd Font and updates Ghostty config.
@@ -121,7 +131,7 @@ func (m NerdFontModule) Install(ctx types.InstallContext) error {
 		if !ok {
 			return fmt.Errorf("unknown font %q for darwin cask", fontName)
 		}
-		if err := runner.BrewCask(ctx.Cancel, ctx.Log, ctx.Platform, cask); err != nil {
+		if err := runner.BrewCaskAt(ctx.Cancel, ctx.Log, ctx.Platform, brewPath(ctx), cask); err != nil {
 			return err
 		}
 	} else {

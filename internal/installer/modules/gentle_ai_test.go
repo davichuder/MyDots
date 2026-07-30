@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
+	"github.com/davichuder/MyDots/internal/installer/runner"
 	"github.com/davichuder/MyDots/internal/installer/types"
 	"github.com/davichuder/MyDots/internal/platform"
 )
@@ -80,20 +82,44 @@ func TestGentleAi_IsInstalled(t *testing.T) {
 // --- Install ---
 
 func TestGentleAi_Install(t *testing.T) {
-	t.Run("install sequence: brew tap, brew install", func(t *testing.T) {
+	t.Run("fresh-install session uses discovered brew path for tap and install", func(t *testing.T) {
+		brewPath := "/opt/homebrew/bin/brew"
+		var calls []struct {
+			name string
+			args []string
+		}
 		withMockExecutor(t, &mockExecutor{
 			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+				calls = append(calls, struct {
+					name string
+					args []string
+				}{name: name, args: args})
 				return nil, nil
 			},
 		})
 
 		ctx := types.InstallContext{
-			Cancel: context.Background(),
+			Cancel: runner.WithBrewPath(context.Background(), &brewPath),
 			Log:    &bytes.Buffer{},
 		}
 		m := GentleAiModule{}
 		if err := m.Install(ctx); err != nil {
 			t.Fatalf("Install() = %v, want nil", err)
+		}
+		want := []struct {
+			name string
+			args []string
+		}{
+			{brewPath, []string{"tap", "Gentleman-Programming/homebrew-tap"}},
+			{brewPath, []string{"install", "gentle-ai"}},
+		}
+		if len(calls) != len(want) {
+			t.Fatalf("calls = %#v, want %#v", calls, want)
+		}
+		for i := range want {
+			if calls[i].name != want[i].name || !slices.Equal(calls[i].args, want[i].args) {
+				t.Errorf("call %d = %#v, want %#v", i, calls[i], want[i])
+			}
 		}
 	})
 

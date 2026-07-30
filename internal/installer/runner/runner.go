@@ -51,6 +51,22 @@ func (osExecutor) LookPath(name string) (string, error) {
 // currentExecutor is the globally active executor. Replaced by SetExecutor in tests.
 var currentExecutor Executor = osExecutor{}
 
+type brewPathContextKey struct{}
+
+// WithBrewPath attaches a session-scoped brew executable reference to ctx.
+// The pointed value may be populated after the Homebrew installer completes.
+func WithBrewPath(ctx context.Context, brewPath *string) context.Context {
+	return context.WithValue(ctx, brewPathContextKey{}, brewPath)
+}
+
+func brewPathFromContext(ctx context.Context) string {
+	brewPath, _ := ctx.Value(brewPathContextKey{}).(*string)
+	if brewPath == nil {
+		return ""
+	}
+	return *brewPath
+}
+
 // createTempFile is an injectable os.CreateTemp for testing Script's temp file behaviour.
 var createTempFile = func(pattern string) (*os.File, error) {
 	return os.CreateTemp("", pattern)
@@ -77,7 +93,44 @@ func Run(ctx context.Context, logw io.Writer, name string, args ...string) error
 
 // Brew is a shorthand for Run(ctx, logw, "brew", args...).
 func Brew(ctx context.Context, logw io.Writer, args ...string) error {
-	return Run(ctx, logw, "brew", args...)
+	return BrewAt(ctx, logw, brewPathFromContext(ctx), args...)
+}
+
+// BrewAt runs brew from the supplied executable path. An empty path preserves
+// the normal PATH lookup. It lets an installation session use the brew binary
+// discovered immediately after a fresh Homebrew install without changing the
+// process environment.
+func BrewAt(ctx context.Context, logw io.Writer, brewPath string, args ...string) error {
+	if brewPath == "" {
+		return Run(ctx, logw, "brew", args...)
+	}
+	return Run(ctx, logw, brewPath, args...)
+}
+
+// RefreshBrew finds brew after a fresh Homebrew installation. It deliberately
+// uses executable paths rather than parsing `brew shellenv` or mutating PATH,
+// so concurrent installation sessions do not race through process state.
+func RefreshBrew(p platform.Platform) (string, error) {
+	if path, err := currentExecutor.LookPath("brew"); err == nil {
+		return path, nil
+	}
+
+	var candidates []string
+	switch p.OS {
+	case platform.Darwin:
+		candidates = []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"}
+	case platform.Linux:
+		candidates = []string{"/home/linuxbrew/.linuxbrew/bin/brew"}
+	default:
+		return "", fmt.Errorf("Homebrew is unsupported on %s", p.OS)
+	}
+
+	for _, candidate := range candidates {
+		if path, err := currentExecutor.LookPath(candidate); err == nil {
+			return path, nil
+		}
+	}
+	return "", errors.New("brew was not found after installation")
 }
 
 // BrewCask installs a Homebrew cask. Returns ErrNotDarwin when the
@@ -86,17 +139,26 @@ func BrewCask(ctx context.Context, logw io.Writer, p platform.Platform, caskName
 	if p.OS != platform.Darwin {
 		return ErrNotDarwin
 	}
-	return Run(ctx, logw, "brew", "install", "--cask", caskName)
+	return Brew(ctx, logw, "install", "--cask", caskName)
+}
+
+// BrewCaskAt installs a Homebrew cask using the supplied brew executable path.
+func BrewCaskAt(ctx context.Context, logw io.Writer, p platform.Platform, brewPath, caskName string) error {
+	if p.OS != platform.Darwin {
+		return ErrNotDarwin
+	}
+	return BrewAt(ctx, logw, brewPath, "install", "--cask", caskName)
 }
 
 // BrewTap taps a Homebrew tap and installs the formula in two steps:
-//   brew tap <tap>
-//   brew install <formula>
+//
+//	brew tap <tap>
+//	brew install <formula>
 func BrewTap(ctx context.Context, logw io.Writer, tap, formula string) error {
-	if err := Run(ctx, logw, "brew", "tap", tap); err != nil {
+	if err := Brew(ctx, logw, "tap", tap); err != nil {
 		return err
 	}
-	return Run(ctx, logw, "brew", "install", formula)
+	return Brew(ctx, logw, "install", formula)
 }
 
 // Script extracts an embedded shell script to a temp file and executes it
@@ -172,11 +234,35 @@ func CaptureOutput(name string, args ...string) string {
 	return out
 }
 
+// CaptureOutputAt runs an executable from an explicit path and returns its
+// trimmed output. An empty path preserves the normal brew PATH lookup.
+func CaptureOutputAt(name string, args ...string) string {
+	out, err := CaptureOutputErrorAt(name, args...)
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
 // CaptureOutputError runs a command and returns its trimmed output and error.
 // Callers that must not continue after a failed probe use this instead of
 // CaptureOutput, which intentionally preserves its historical empty-on-error
 // contract for idempotence checks.
 func CaptureOutputError(name string, args ...string) (string, error) {
+	out, err := currentExecutor.Execute(context.Background(), name, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// CaptureOutputErrorAt runs an executable from an explicit path and returns
+// trimmed output. It is used when a fresh Homebrew install has not altered
+// the parent process PATH.
+func CaptureOutputErrorAt(name string, args ...string) (string, error) {
+	if name == "" {
+		name = "brew"
+	}
 	out, err := currentExecutor.Execute(context.Background(), name, args...)
 	if err != nil {
 		return "", err
