@@ -1,5 +1,7 @@
 package installer
 
+import "github.com/davichuder/MyDots/internal/installer/runner"
+
 // ProgressEvent is sent through the install channel to report module progress.
 // The TUI install screen reads these events to update the progress display.
 type ProgressEvent struct {
@@ -20,6 +22,10 @@ type ProgressEvent struct {
 //	for e := range ch { /* handle event */ }
 func Run(plan []Module, ctx InstallContext, ch chan ProgressEvent) {
 	defer close(ch)
+	if ctx.BrewPath == nil {
+		ctx.BrewPath = new(string)
+	}
+	ctx.Cancel = runner.WithBrewPath(ctx.Cancel, ctx.BrewPath)
 
 	failedIDs := map[ModuleID]bool{}
 
@@ -50,8 +56,18 @@ func runOne(mod Module, ctx InstallContext, ch chan ProgressEvent, failedIDs map
 		}
 	}
 
-	// Idempotence check — skip if already installed.
-	if mod.IsInstalled(ctx.Platform) {
+	// Idempotence check — configuration-aware modules must match the current
+	// desired state rather than merely any prior installation.
+	installed := false
+	if configured, ok := mod.(ContextConfiguredStateModule); ok {
+		installed = configured.IsInstalledForContext(ctx)
+	} else {
+		installed = mod.IsInstalled(ctx.Platform)
+		if configured, ok := mod.(ConfiguredStateModule); ok {
+			installed = configured.IsInstalledForConfig(ctx.Platform, ctx.Config)
+		}
+	}
+	if installed {
 		ch <- ProgressEvent{ModuleID: mod.ID(), Status: StatusSkipped}
 		return nil
 	}

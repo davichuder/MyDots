@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "theme": "dark",
+  "mcp": {
+    "custom-server": {
+      "type": "local",
+      "command": ["node", "server.js"],
+      "enabled": true
+    },
+    "supabase": {
+      "type": "local",
+      "command": ["stale-command"],
+      "enabled": false
+    }
+  }
+}

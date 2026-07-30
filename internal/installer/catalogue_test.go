@@ -90,6 +90,38 @@ func TestAllModules_DependenciesExist(t *testing.T) {
 	}
 }
 
+func TestAllModules_RuntimeEntriesHaveIndependentContracts(t *testing.T) {
+	byID := map[ModuleID]Module{}
+	for _, module := range allModules() {
+		byID[module.ID()] = module
+	}
+	tests := []struct {
+		id   ModuleID
+		name string
+		dep  ModuleID
+	}{
+		{ModFnm, "Fnm", ModHomebrew},
+		{ModNode, "Node 24", ModFnm},
+		{ModUv, "Uv", ModHomebrew},
+		{ModPython, "Python 3.12", ModUv},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.id), func(t *testing.T) {
+			module := byID[tt.id]
+			if module == nil {
+				t.Fatalf("catalogue is missing %s", tt.id)
+			}
+			if got := module.Name(); got != tt.name {
+				t.Fatalf("Name() = %q, want %q", got, tt.name)
+			}
+			deps := module.Dependencies()
+			if len(deps) != 1 || deps[0] != tt.dep {
+				t.Fatalf("Dependencies() = %v, want [%s]", deps, tt.dep)
+			}
+		})
+	}
+}
+
 func TestAllModules_ListIsComplete(t *testing.T) {
 	modules := allModules()
 	ids := make(map[ModuleID]bool)

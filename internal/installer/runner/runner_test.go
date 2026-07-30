@@ -5,8 +5,12 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -249,6 +253,64 @@ func TestBrew(t *testing.T) {
 	}
 }
 
+func TestRefreshBrewAndBrewAt(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform platform.Platform
+		paths    map[string]string
+		wantPath string
+	}{
+		{"Apple Silicon prefix becomes available to dependent brew commands", platform.Platform{OS: platform.Darwin}, map[string]string{"/opt/homebrew/bin/brew": "/opt/homebrew/bin/brew"}, "/opt/homebrew/bin/brew"},
+		{"Linuxbrew prefix becomes available to dependent brew commands", platform.Platform{OS: platform.Linux}, map[string]string{"/home/linuxbrew/.linuxbrew/bin/brew": "/home/linuxbrew/.linuxbrew/bin/brew"}, "/home/linuxbrew/.linuxbrew/bin/brew"},
+		{"supported discovered prefix is used before fallback prefixes", platform.Platform{OS: platform.Darwin}, map[string]string{"brew": "/custom/homebrew/bin/brew"}, "/custom/homebrew/bin/brew"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var command string
+			var args []string
+			withExecutor(t, &mockExecutor{
+				lookPathFunc: func(name string) (string, error) {
+					if path, ok := tt.paths[name]; ok {
+						return path, nil
+					}
+					return "", errors.New("not found")
+				},
+				executeFunc: func(_ context.Context, name string, gotArgs ...string) ([]byte, error) {
+					command, args = name, gotArgs
+					return nil, nil
+				},
+			})
+
+			brewPath, err := RefreshBrew(tt.platform)
+			if err != nil {
+				t.Fatalf("RefreshBrew() = %v", err)
+			}
+			if brewPath != tt.wantPath {
+				t.Fatalf("RefreshBrew() = %q, want %q", brewPath, tt.wantPath)
+			}
+			pathRef := ""
+			session := WithBrewPath(context.Background(), &pathRef)
+			pathRef = brewPath // Homebrew completes after the installation session starts.
+			if err := Brew(session, io.Discard, "install", "zoxide"); err != nil {
+				t.Fatalf("Brew() = %v", err)
+			}
+			if command != tt.wantPath || !slices.Equal(args, []string{"install", "zoxide"}) {
+				t.Errorf("dependent command = %q %v, want %q %v", command, args, tt.wantPath, []string{"install", "zoxide"})
+			}
+		})
+	}
+}
+
+func TestRefreshBrewReturnsErrorWhenNoSupportedPrefixExists(t *testing.T) {
+	withExecutor(t, &mockExecutor{
+		lookPathFunc: func(string) (string, error) { return "", errors.New("not found") },
+	})
+	if _, err := RefreshBrew(platform.Platform{OS: platform.Linux}); err == nil {
+		t.Fatal("RefreshBrew() returned nil when brew was not discoverable")
+	}
+}
+
 // --- BrewCask ---
 
 func TestBrewCask(t *testing.T) {
@@ -274,8 +336,47 @@ func TestBrewCask(t *testing.T) {
 		if capturedName != "brew" {
 			t.Errorf("expected command 'brew', got: %q", capturedName)
 		}
-		if len(capturedArgs) != 2 || capturedArgs[0] != "--cask" || capturedArgs[1] != "ghostty" {
-			t.Errorf("expected args ['--cask', 'ghostty'], got: %v", capturedArgs)
+		if len(capturedArgs) != 3 || capturedArgs[0] != "install" || capturedArgs[1] != "--cask" || capturedArgs[2] != "ghostty" {
+			t.Errorf("expected args ['install', '--cask', 'ghostty'], got: %v", capturedArgs)
+		}
+	})
+
+	t.Run("uses the session brew path and preserves cask argv", func(t *testing.T) {
+		var capturedName string
+		var capturedArgs []string
+		withExecutor(t, &mockExecutor{
+			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+				capturedName = name
+				capturedArgs = args
+				return nil, nil
+			},
+		})
+
+		brewPath := "/opt/homebrew/bin/brew"
+		ctx := WithBrewPath(context.Background(), &brewPath)
+		if err := BrewCask(ctx, io.Discard, platform.Platform{OS: platform.Darwin}, "font-jetbrains-mono-nerd-font"); err != nil {
+			t.Fatalf("BrewCask() = %v", err)
+		}
+		if capturedName != brewPath || !slices.Equal(capturedArgs, []string{"install", "--cask", "font-jetbrains-mono-nerd-font"}) {
+			t.Errorf("command = %q %v, want %q %v", capturedName, capturedArgs, brewPath, []string{"install", "--cask", "font-jetbrains-mono-nerd-font"})
+		}
+	})
+
+	t.Run("propagates cask failure from the session brew path", func(t *testing.T) {
+		caskErr := errors.New("cask failed")
+		withExecutor(t, &mockExecutor{
+			executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+				if name != "/opt/homebrew/bin/brew" || !slices.Equal(args, []string{"install", "--cask", "ghostty"}) {
+					t.Errorf("command = %q %v, want %q %v", name, args, "/opt/homebrew/bin/brew", []string{"install", "--cask", "ghostty"})
+				}
+				return nil, caskErr
+			},
+		})
+
+		brewPath := "/opt/homebrew/bin/brew"
+		ctx := WithBrewPath(context.Background(), &brewPath)
+		if err := BrewCask(ctx, io.Discard, platform.Platform{OS: platform.Darwin}, "ghostty"); !errors.Is(err, caskErr) {
+			t.Errorf("BrewCask() = %v, want %v", err, caskErr)
 		}
 	})
 
@@ -320,6 +421,33 @@ func TestBrewTap(t *testing.T) {
 		if call != expectedCmds[i] {
 			t.Errorf("call %d: expected %q, got %q", i, expectedCmds[i], call)
 		}
+	}
+}
+
+func TestBrewTapUsesSessionPathAndPropagatesTapFailure(t *testing.T) {
+	tapErr := errors.New("tap failed")
+	var calls []struct {
+		name string
+		args []string
+	}
+	withExecutor(t, &mockExecutor{
+		executeFunc: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			calls = append(calls, struct {
+				name string
+				args []string
+			}{name: name, args: args})
+			return nil, tapErr
+		},
+	})
+
+	brewPath := "/opt/homebrew/bin/brew"
+	ctx := WithBrewPath(context.Background(), &brewPath)
+	err := BrewTap(ctx, io.Discard, "Gentleman-Programming/homebrew-tap", "gentle-ai")
+	if !errors.Is(err, tapErr) {
+		t.Fatalf("BrewTap() = %v, want %v", err, tapErr)
+	}
+	if len(calls) != 1 || calls[0].name != brewPath || !slices.Equal(calls[0].args, []string{"tap", "Gentleman-Programming/homebrew-tap"}) {
+		t.Errorf("calls = %#v, want one %q %v call", calls, brewPath, []string{"tap", "Gentleman-Programming/homebrew-tap"})
 	}
 }
 
@@ -400,4 +528,388 @@ func TestScript(t *testing.T) {
 			t.Errorf("expected output to end with 'MYVAR=testvalue', got: %q", output)
 		}
 	})
+}
+
+func TestShippedInstallerScriptsRunUnderPOSIXSh(t *testing.T) {
+	binDir := t.TempDir()
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '%s\\n' 'echo downloaded-installer-ran'\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\neval \"$(cat \"$1\")\"\n")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	scripts := []string{
+		"assets/scripts/homebrew-install.sh",
+		"assets/scripts/omz-install.sh",
+		"assets/scripts/sdkman-install.sh",
+	}
+	for _, script := range scripts {
+		t.Run(script, func(t *testing.T) {
+			log, err := runPOSIXScript(t, script, binDir)
+			if err != nil {
+				t.Fatalf("script %q = %v, want nil; output: %s", script, err, log)
+			}
+			if !strings.Contains(log, "installation complete") {
+				t.Errorf("script %q output = %q, want completion message", script, log)
+			}
+			if !strings.Contains(log, "downloaded-installer-ran") {
+				t.Errorf("script %q output = %q, want downloaded installer execution", script, log)
+			}
+		})
+	}
+}
+
+func TestShippedInstallerScriptsReturnDownloadFailure(t *testing.T) {
+	binDir := t.TempDir()
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")
+
+	scripts := []string{
+		"assets/scripts/homebrew-install.sh",
+		"assets/scripts/omz-install.sh",
+		"assets/scripts/sdkman-install.sh",
+	}
+	for _, script := range scripts {
+		t.Run(script, func(t *testing.T) {
+			log, err := runPOSIXScript(t, script, binDir)
+			if err == nil {
+				t.Fatalf("script %q returned nil after the download failed", script)
+			}
+			if strings.Contains(log, "installation complete") {
+				t.Errorf("script %q output = %q, must not report successful installation", script, log)
+			}
+		})
+	}
+}
+
+func TestShippedCavemanScriptReturnsDownloadFailure(t *testing.T) {
+	binDir := t.TempDir()
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")
+
+	log, err := runPOSIXScript(t, "assets/scripts/caveman-install.sh", binDir)
+	if err == nil {
+		t.Fatal("caveman script returned nil after the download failed")
+	}
+	if strings.Contains(log, "Caveman installation complete") {
+		t.Errorf("caveman script output = %q, must not report successful installation", log)
+	}
+}
+
+func TestShippedCavemanScriptRunsDownloadedInstallerWithOpenclawOnly(t *testing.T) {
+	binDir := t.TempDir()
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\ncat <<'EOF'\n#!/bin/sh\nif [ \"$1\" = \"--only\" ] && [ \"$2\" = \"openclaw\" ]; then\n    echo caveman-installer-ran\nelse\n    exit 9\nfi\nEOF\n")
+
+	log, err := runPOSIXScript(t, "assets/scripts/caveman-install.sh", binDir)
+	if err != nil {
+		t.Fatalf("caveman script = %v, want nil; output: %s", err, log)
+	}
+	if !strings.Contains(log, "caveman-installer-ran") {
+		t.Errorf("caveman script output = %q, want downloaded installer output", log)
+	}
+	if !strings.Contains(log, "Caveman installation complete") {
+		t.Errorf("caveman script output = %q, want completion message", log)
+	}
+}
+
+func TestShippedGhosttyLinuxScriptDownloadsAndRunsUbuntuInstaller(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"-o\" ] || exit 12\n[ \"$4\" = \"https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh\" ] || exit 13\nprintf '#!/bin/sh\\necho upstream-installer-ran\\n' > \"$3\"\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexec sh \"$1\"\n")
+	t.Setenv("COMMAND_LOG", logFile)
+
+	log, err := runPOSIXScript(t, "assets/scripts/ghostty-linux.sh", binDir)
+	if err != nil {
+		t.Fatalf("ghostty-linux.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "upstream-installer-ran") || !strings.Contains(log, "Ghostty installation complete") {
+		t.Errorf("ghostty-linux.sh output = %q, want installer and completion output", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 2 || !strings.HasPrefix(entries[0], "curl:") || entries[1] != "bash:"+strings.TrimPrefix(entries[0], "curl:") {
+		t.Errorf("commands = %q, want curl followed by bash for the same temporary installer", commands)
+		return
+	}
+	installerPath := strings.TrimPrefix(entries[0], "curl:")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+}
+
+func TestShippedGhosttyLinuxScriptStopsWhenDownloadFails(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\nexit 22\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("COMMAND_LOG", logFile)
+
+	log, err := runPOSIXScript(t, "assets/scripts/ghostty-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("ghostty-linux.sh returned nil after the download failed")
+	}
+	if strings.Contains(log, "Ghostty installation complete") {
+		t.Errorf("ghostty-linux.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	installerPath := strings.TrimPrefix(strings.TrimSpace(string(commands)), "curl:")
+	if installerPath == strings.TrimSpace(string(commands)) {
+		t.Fatalf("commands = %q, want curl temporary installer path", commands)
+	}
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after download failure; stat error = %v", installerPath, err)
+	}
+}
+
+func TestShippedGhosttyLinuxScriptValidatesRequiredToolsBeforeDownloading(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf '%s\\n' \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("COMMAND_LOG", logFile)
+
+	log, err := runPOSIXScriptWithPath(t, "assets/scripts/ghostty-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("ghostty-linux.sh returned nil without curl")
+	}
+	if !strings.Contains(log, "curl is required") {
+		t.Errorf("ghostty-linux.sh output = %q, want missing curl error", log)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("installer ran without curl; stat error = %v", err)
+	}
+}
+
+func TestShippedGhosttyLinuxScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '#!/bin/sh\\nexit 43\\n' > \"$3\"\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexit 43\n")
+	t.Setenv("COMMAND_LOG", logFile)
+
+	log, err := runPOSIXScript(t, "assets/scripts/ghostty-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("ghostty-linux.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "Ghostty installation complete") {
+		t.Errorf("ghostty-linux.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 2 || !strings.HasPrefix(entries[0], "curl:") || entries[1] != "bash:"+strings.TrimPrefix(entries[0], "curl:") {
+		t.Errorf("commands = %q, want curl followed by bash for the same temporary installer", commands)
+		return
+	}
+	installerPath := strings.TrimPrefix(entries[0], "curl:")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+}
+
+func TestShippedFontLinuxScriptInstallsAndRefreshesFontCache(t *testing.T) {
+	binDir := t.TempDir()
+	fontHome := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fL\" ] || exit 11\n[ \"$2\" = \"-o\" ] || exit 12\nprintf 'archive' > \"$3\"\nprintf 'curl:%s\\n' \"$4\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\n[ \"$1\" = \"-o\" ] || exit 21\n[ \"$3\" = \"-d\" ] || exit 22\nmkdir -p \"$4\"\nprintf 'font' > \"$4/font.ttf\"\nprintf 'unzip:%s:%s\\n' \"$2\" \"$4\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\n[ \"$1\" = \"-fv\" ] || exit 31\nprintf 'cache:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", fontHome)
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "FiraCode.zip")
+
+	log, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir)
+	if err != nil {
+		t.Fatalf("font-linux.sh = %v, output: %s", err, log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	fontDir := filepath.Join(fontHome, ".local", "share", "fonts")
+	if !strings.Contains(string(commands), "curl:https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip") ||
+		!strings.Contains(string(commands), "unzip:") ||
+		!strings.Contains(string(commands), "cache:") ||
+		!strings.Contains(string(commands), "/.local/share/fonts\n") {
+		t.Errorf("commands = %q, want download, extract, and cache refresh", commands)
+	}
+	if _, err := os.Stat(filepath.Join(fontDir, "font.ttf")); err != nil {
+		t.Errorf("extracted font = %v, want file", err)
+	}
+}
+
+func TestShippedFontLinuxScriptStopsWhenDownloadFails(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nexit 22\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\nprintf 'unzip\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\nprintf 'cache\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	if _, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir); err == nil {
+		t.Fatal("font-linux.sh returned nil after the download failed")
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	if got := string(commands); got != "curl\n" {
+		t.Errorf("commands = %q, want curl only", got)
+	}
+}
+
+func TestShippedFontLinuxScriptStopsWhenUnzipIsMissing(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf '%s\\n' \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "mkdir"), "#!/bin/sh\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	log, err := runPOSIXScriptWithPath(t, "assets/scripts/font-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("font-linux.sh returned nil when unzip was unavailable")
+	}
+	if got, want := log, "Error: unzip is required to install Nerd Fonts.\n"; got != want {
+		t.Errorf("font-linux.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("curl ran without unzip; stat error = %v", err)
+	}
+}
+
+func TestShippedFontLinuxScriptStopsWhenExtractionFails(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'archive' > \"$3\"\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\nprintf 'unzip\\n' >> \"$COMMAND_LOG\"\nexit 32\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\nprintf 'cache\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	log, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("font-linux.sh returned nil after unzip failed")
+	}
+	if strings.Contains(log, "Nerd Font installation complete") {
+		t.Errorf("font-linux.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	if got := string(commands); got != "curl\nunzip\n" {
+		t.Errorf("commands = %q, want curl and unzip only", got)
+	}
+}
+
+func TestShippedFontLinuxScriptStopsWhenFontCacheRefreshFails(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'archive' > \"$3\"\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\nmkdir -p \"$4\"\nprintf 'unzip\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\nprintf 'cache\\n' >> \"$COMMAND_LOG\"\nexit 43\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	log, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir)
+	if err == nil {
+		t.Fatal("font-linux.sh returned nil after fc-cache failed")
+	}
+	if strings.Contains(log, "Nerd Font installation complete") {
+		t.Errorf("font-linux.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	if got := string(commands); got != "curl\nunzip\ncache\n" {
+		t.Errorf("commands = %q, want curl, unzip, and failed cache refresh", got)
+	}
+}
+
+func TestShippedFontLinuxScriptRejectsUnsafeFontName(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "../unsafe.zip")
+
+	if _, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir); err == nil {
+		t.Fatal("font-linux.sh returned nil for an unsafe font name")
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("curl ran for an unsafe font name; stat error = %v", err)
+	}
+}
+
+func writeScriptStub(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0700); err != nil {
+		t.Fatalf("WriteFile(%q): %v", path, err)
+	}
+}
+
+func runPOSIXScript(t *testing.T, script, binDir string) (string, error) {
+	t.Helper()
+	return runPOSIXScriptWithPath(t, script, scriptTestPath(binDir))
+}
+
+func runPOSIXScriptWithPath(t *testing.T, script, path string) (string, error) {
+	t.Helper()
+	repoRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("Abs repository root: %v", err)
+	}
+
+	cmd := exec.Command(posixShell(t), filepath.Join(repoRoot, script))
+	cmd.Env = replaceEnv(os.Environ(), "PATH", path)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func posixShell(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return "/bin/sh"
+	}
+
+	gitDash := filepath.Join(os.Getenv("ProgramFiles"), "Git", "usr", "bin", "dash.exe")
+	if _, err := os.Stat(gitDash); err != nil {
+		t.Fatalf("Git POSIX dash is required for shipped-script tests: %v", err)
+	}
+	return gitDash
+}
+
+func scriptTestPath(binDir string) string {
+	path := binDir + string(os.PathListSeparator)
+	if runtime.GOOS == "windows" {
+		path += filepath.Join(os.Getenv("ProgramFiles"), "Git", "bin") + string(os.PathListSeparator)
+	}
+	return path + os.Getenv("PATH")
+}
+
+func replaceEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	replaced := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			replaced = append(replaced, entry)
+		}
+	}
+	return append(replaced, prefix+value)
 }

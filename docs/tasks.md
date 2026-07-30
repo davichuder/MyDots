@@ -290,7 +290,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-037** Write failing tests for `homebrew.go` (M-01):
+- [x] **T-037** Write failing tests for `homebrew.go` (M-01):
   - `IsInstalled()` true when `which brew` succeeds; false otherwise
   - `Install()` on Darwin: calls homebrew curl-script (mock)
   - `Install()` on Linux: same script (mock)
@@ -299,7 +299,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-038** Implement `homebrew.go`
+- [x] **T-038** Implement `homebrew.go`
 
 ---
 
@@ -307,7 +307,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-039** Write failing tests for `zsh.go` (M-02):
+- [x] **T-039** Write failing tests for `zsh.go` (M-02):
   - `IsInstalled()` checks `which zsh`
   - `Install()` on Ubuntu: brew install, then appends brew zsh path to `/etc/shells` only if not already present, then `chsh -s $(which zsh)`
   - `Install()` on Darwin: brew install + `chsh` only; no `/etc/shells` modification
@@ -316,18 +316,18 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-040** Implement `zsh.go`
+- [x] **T-040** Implement `zsh.go`
 
 **[RED]**
 
-- [ ] **T-041** Write failing tests for `oh_my_zsh.go` (M-03):
+- [x] **T-041** Write failing tests for `oh_my_zsh.go` (M-03):
   - `IsInstalled()` checks `~/.oh-my-zsh` directory exists
   - `Install()` runs omz-install.sh script with `RUNZSH=no CHSH=no` env vars set
   - Edge case: `~/.oh-my-zsh` exists but is empty → still treated as installed (directory check only)
 
 **[GREEN]**
 
-- [ ] **T-042** Implement `oh_my_zsh.go`
+- [x] **T-042** Implement `oh_my_zsh.go`
 
 ---
 
@@ -335,7 +335,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-043** Write failing tests for `c_cpp.go` (M-13):
+- [x] **T-043** Write failing tests for `c_cpp.go` (M-13):
   - `IsInstalled()` on Darwin: checks `which clangd`
   - `IsInstalled()` on Ubuntu: checks `which gcc`
   - `Install()` on Darwin: calls `brew install gcc cmake llvm` — no `xcode-select` call (ADR-009)
@@ -344,7 +344,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-044** Implement `c_cpp.go`
+- [x] **T-044** Implement `c_cpp.go`
 
 ---
 
@@ -352,7 +352,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-045** Write failing tests for `FnmManager`, `UvManager`, `SdkmanManager`:
+- [x] **T-045** Write failing tests for `FnmManager`, `UvManager`, `SdkmanManager`:
   - Each satisfies `RuntimeManager` interface
   - `Install()` calls correct brew formula or curl-script (via mock runner)
   - `InstallRuntime(version)` calls the manager's install command with the given version string
@@ -361,11 +361,11 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-046** Implement `internal/runtime/fnm.go`, `uv.go`, `sdkman.go` (design.md §3.4)
+- [x] **T-046** Implement `internal/runtime/fnm.go`, `uv.go`, `sdkman.go` (design.md §3.4)
 
 **[RED]**
 
-- [ ] **T-047** Write failing tests for modules using runtime managers (`fnm_node.go` for M-08+M-09, `uv_python.go` for M-10+M-11):
+- [x] **T-047** Write failing tests for modules using runtime managers (`fnm_node.go` for M-08+M-09, `uv_python.go` for M-10+M-11):
   - Module constructor accepts a `RuntimeManager` — no import of concrete manager type
   - `Install()` delegates install and runtime installation to the injected manager
   - Mock manager returning error on `Install()` → module returns error
@@ -373,7 +373,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-048** Implement `fnm_node.go` and `uv_python.go`
+- [x] **T-048** Implement `fnm_node.go` and `uv_python.go`
 
 ---
 
@@ -381,7 +381,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-049** Write failing tests for `neovim.go` (M-17):
+- [x] **T-049** Write failing tests for `neovim.go` (M-17):
   - `IsInstalled()` requires BOTH `which nvim` AND `~/.config/nvim/init.lua` to exist
   - Binary exists but `init.lua` missing: `Install()` applies config only, does not reinstall binary
   - `Install()` backs up `~/.config/nvim/` before writing config if the directory exists
@@ -389,22 +389,22 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-050** Implement `neovim.go`
+- [x] **T-050** Implement `neovim.go`
 
 **[RED]**
 
-- [ ] **T-051** Write failing tests for `neovim_personal.go` (M-18):
+- [x] **T-051** Write failing tests for `neovim_personal.go` (M-18):
   - If M-45 (chezmoi) is in `failedIDs` → returns `StatusSkippedDependencyFailed` without calling chezmoi
   - Backs up `~/.config/nvim/` before `chezmoi apply`
   - `IsInstalled()` runs `chezmoi status` and checks for no diff output
 
 **[GREEN]**
 
-- [ ] **T-052** Implement `neovim_personal.go` (SC-09, SC-14)
+- [x] **T-052** Implement `neovim_personal.go` (SC-09, SC-14)
 
 **[RED]**
 
-- [ ] **T-053** Write failing tests for `neovim_framework.go` (M-19):
+- [x] **T-053** Write failing tests for `neovim_framework.go` (M-19):
   - `IsInstalled()` checks `~/.config/nvim-<framework>` directory exists
   - `Install()` clones the correct repo URL for each of the 5 frameworks (triangulation)
   - Alias is appended to `~/.zshrc` in correct format: `alias <name>='NVIM_APPNAME=nvim-<name> nvim'`
@@ -413,7 +413,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-054** Implement `neovim_framework.go` (SC-10)
+- [x] **T-054** Implement `neovim_framework.go` (SC-10)
 
 ---
 
@@ -421,7 +421,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-055** Write failing tests for `clipboard.go` (M-37) — all 5 paths must be covered:
+- [x] **T-055** Write failing tests for `clipboard.go` (M-37) — all 5 paths must be covered:
   - Darwin: `IsInstalled()` always true; `Install()` is a no-op
   - Ubuntu native + `$WAYLAND_DISPLAY` set: installs `wl-clipboard` via brew
   - Ubuntu native + `$WAYLAND_DISPLAY` not set: installs `xclip` via brew (X11 fallback, NFR-12)
@@ -430,11 +430,11 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-056** Implement `clipboard.go` (NFR-12)
+- [x] **T-056** Implement `clipboard.go` (NFR-12)
 
 **[RED]**
 
-- [ ] **T-057** Write failing tests for `docker.go` (M-38):
+- [x] **T-057** Write failing tests for `docker.go` (M-38):
   - Darwin: calls `brew install --cask docker-desktop`
   - Ubuntu native: runs `docker-linux.sh` script (mock)
   - WSL2 + systemd active (`systemctl is-system-running` returns 0): runs `docker-linux.sh` script
@@ -443,11 +443,11 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-058** Implement `docker.go` (ADR-006, NFR-13)
+- [x] **T-058** Implement `docker.go` (ADR-006, NFR-13)
 
 **[RED]**
 
-- [ ] **T-059** Write failing tests for `ghostty.go` (M-48):
+- [x] **T-059** Write failing tests for `ghostty.go` (M-48):
   - Darwin: `brew install --cask ghostty`
   - Ubuntu native: runs `ghostty-linux.sh` script (mock)
   - WSL2 + `$WAYLAND_DISPLAY` set: runs `ghostty-linux.sh` (WSLg provides display)
@@ -455,7 +455,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-060** Implement `ghostty.go`
+- [x] **T-060** Implement `ghostty.go`
 
 ---
 
@@ -463,7 +463,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-061** Write failing tests for `theme.go` (M-46):
+- [x] **T-061** Write failing tests for `theme.go` (M-46):
   - Theme written to all 4 config files (nvim, zsh, zellij, ghostty)
   - Uses `# MYDOTS_THEME_START / END` markers — content between markers is replaced, not appended
   - First run: markers and theme content are inserted
@@ -475,11 +475,11 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-062** Implement `theme.go` (SC-15)
+- [x] **T-062** Implement `theme.go` (SC-15)
 
 **[RED]**
 
-- [ ] **T-063** Write failing tests for `nerd_font.go` (M-47):
+- [x] **T-063** Write failing tests for `nerd_font.go` (M-47):
   - Darwin: `brew install --cask font-<name>-nerd-font` — correct cask name per font (triangulation: all 5 fonts)
   - Ubuntu: runs `font-linux.sh` with `FONT_NAME` env var set to the correct zip filename
   - Post-install on both platforms: Ghostty config updated with `font-family = <Name> Nerd Font` using idempotent marker
@@ -487,11 +487,11 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-064** Implement `nerd_font.go` (ADR-010)
+- [x] **T-064** Implement `nerd_font.go` (ADR-010)
 
 **[RED]**
 
-- [ ] **T-065** Write failing tests for `mcp_config.go` (M-44):
+- [x] **T-065** Write failing tests for `mcp_config.go` (M-44):
   - Writes all 6 MCP entries when `opencode.json` does not exist
   - Merges entries into existing `opencode.json` — existing unmanaged keys (e.g., `"theme"`) are preserved
   - Creates `~/.config/opencode/` directory if missing
@@ -501,11 +501,11 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-066** Implement `mcp_config.go`
+- [x] **T-066** Implement `mcp_config.go`
 
 **[RED]**
 
-- [ ] **T-067** Write failing tests for `chezmoi.go` (M-45):
+- [x] **T-067** Write failing tests for `chezmoi.go` (M-45):
   - `IsInstalled()` requires binary AND `~/.local/share/chezmoi` directory containing a git repo
   - `Install()` sequence: brew install → `chezmoi init <repo_url>` → `chezmoi apply`
   - `repo_url` is read from `ctx.Config.Chezmoi.RepoURL`
@@ -513,7 +513,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[GREEN]**
 
-- [ ] **T-068** Implement `chezmoi.go`
+- [x] **T-068** Implement `chezmoi.go`
 
 ---
 
@@ -521,14 +521,14 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-069** Write failing tests for `rtk.go` (M-41), `caveman.go` (M-42), `gentle_ai.go` (M-43):
+- [x] **T-069** Write failing tests for `rtk.go` (M-41), `caveman.go` (M-42), `gentle_ai.go` (M-43):
   - RTK: `Install()` calls `brew install rtk` then `rtk init` in sequence via shell-script; if first step fails, second step is not called
   - caveman: `Install()` runs `caveman-install.sh` script (mock)
   - gentle-ai: `Install()` calls `brew tap Gentleman-Programming/homebrew-tap` then `brew install gentle-ai`; tap failure returns error before install attempt
 
 **[GREEN]**
 
-- [ ] **T-070** Implement `rtk.go`, `caveman.go`, `gentle_ai.go`
+- [x] **T-070** Implement `rtk.go`, `caveman.go`, `gentle_ai.go`
 
 ---
 
@@ -536,15 +536,15 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 **[RED]**
 
-- [ ] **T-071** Write failing tests for `sdkman.go` (M-14), `java.go` (M-15), `php.go` (M-16):
-  - sdkman: runs `sdkman-install.sh` curl-script; `IsInstalled()` checks `~/.sdkman` directory exists and contains a `bin/sdkman-init.sh` file
+- [x] **T-071** Write failing tests for `sdkman_module.go` (M-14), `java_module.go` (M-15), `php_module.go` (M-16):
+  - sdkman: runs `sdkman-install.sh` curl-script; `IsInstalled()` checks `~/.sdkman/bin/sdkman-init.sh` file
   - java: calls `SdkmanManager.InstallRuntime("25-open")`; `IsInstalled()` checks `sdk list java` output contains `25.*installed`
   - php: simple brew install; `IsInstalled()` checks `which php`
   - All three: only enqueued when corresponding config flag is true
 
 **[GREEN]**
 
-- [ ] **T-072** Implement `sdkman.go`, `java.go`, `php.go`
+- [x] **T-072** Implement `sdkman_module.go`, `java_module.go`, `php_module.go`
 
 ---
 
@@ -556,7 +556,7 @@ All scripts must pass `shellcheck --shell=sh` before any commit.
 - [ ] **T-074** Write and verify `assets/scripts/omz-install.sh` — `RUNZSH=no CHSH=no`, no interactive prompts
 - [ ] **T-075** Write and verify `assets/scripts/sdkman-install.sh` — official installer, unattended
 - [ ] **T-076** Write and verify `assets/scripts/docker-linux.sh` — apt repo setup + install + `usermod -aG docker $USER`; idempotent (checks if user already in group)
-- [ ] **T-077** Write and verify `assets/scripts/font-linux.sh` — reads `$FONT_NAME` env var, downloads zip from nerdfonts GitHub releases, extracts to `~/.local/share/fonts/`, runs `fc-cache -fv`. Note: `unzip` must be available; script must check and fail clearly if missing.
+- [x] **T-077** Write and verify `assets/scripts/font-linux.sh` — reads `$FONT_NAME` env var, downloads zip from nerdfonts GitHub releases, extracts to `~/.local/share/fonts/`, runs `fc-cache -fv`. Note: `unzip` must be available; script must check and fail clearly if missing.
 - [ ] **T-078** Write and verify `assets/scripts/ghostty-linux.sh` — downloads release tarball, extracts, moves binary to `~/.local/bin/ghostty`
 - [ ] **T-079** Write and verify `assets/scripts/caveman-install.sh` — wrapper for the caveman curl-script with `--only openclaw`
 - [ ] **T-080** Add `shellcheck` CI step that fails the build if any script has warnings
