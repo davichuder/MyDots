@@ -579,6 +579,115 @@ func TestShippedInstallerScriptsReturnDownloadFailure(t *testing.T) {
 	}
 }
 
+func TestHomebrewInstallScriptValidatesCurlBeforeCreatingTemporaryInstaller(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\nprintf '%s/mydots-homebrew-installer' \"$TMPDIR\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/homebrew-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("homebrew-install.sh returned nil without curl")
+	}
+	if got, want := log, "Error: curl is required to install Homebrew.\n"; got != want {
+		t.Errorf("homebrew-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("mktemp ran without curl; stat error = %v", err)
+	}
+}
+
+func TestHomebrewInstallScriptValidatesMktempBeforeDownloading(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/homebrew-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("homebrew-install.sh returned nil without mktemp")
+	}
+	if got, want := log, "Error: mktemp is required to install Homebrew.\n"; got != want {
+		t.Errorf("homebrew-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("curl ran without mktemp; stat error = %v", err)
+	}
+}
+
+func TestHomebrewInstallScriptRunsDownloadedInstallerAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/homebrew-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf 'printf upstream-installer-ran\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/homebrew-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err != nil {
+		t.Fatalf("homebrew-install.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "upstream-installer-ran") || !strings.Contains(log, "Homebrew installation complete") {
+		t.Errorf("homebrew-install.sh output = %q, want installer and completion output", log)
+	}
+	installerPath := filepath.Join(tempDir, "homebrew-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 2 || entries[0] != "curl:https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh" || !strings.HasPrefix(entries[1], "rm:") {
+		t.Errorf("commands = %q, want curl followed by cleanup", commands)
+	}
+}
+
+func TestHomebrewInstallScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/homebrew-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'exit 43\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/homebrew-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("homebrew-install.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "Homebrew installation complete") {
+		t.Errorf("homebrew-install.sh output = %q, must not report success", log)
+	}
+	installerPath := filepath.Join(tempDir, "homebrew-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 2 || entries[0] != "curl" || !strings.HasPrefix(entries[1], "rm:") {
+		t.Errorf("commands = %q, want failed download followed by cleanup", commands)
+	}
+}
+
 func TestShippedCavemanScriptReturnsDownloadFailure(t *testing.T) {
 	binDir := t.TempDir()
 	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")
@@ -878,6 +987,22 @@ func runPOSIXScriptWithPath(t *testing.T, script, path string) (string, error) {
 
 	cmd := exec.Command(posixShell(t), filepath.Join(repoRoot, script))
 	cmd.Env = replaceEnv(os.Environ(), "PATH", path)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func runPOSIXScriptWithEnv(t *testing.T, script, path string, env map[string]string) (string, error) {
+	t.Helper()
+	repoRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("Abs repository root: %v", err)
+	}
+
+	cmd := exec.Command(posixShell(t), filepath.Join(repoRoot, script))
+	cmd.Env = replaceEnv(os.Environ(), "PATH", path)
+	for key, value := range env {
+		cmd.Env = replaceEnv(cmd.Env, key, value)
+	}
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }

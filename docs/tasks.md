@@ -552,7 +552,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 
 All scripts must pass `shellcheck --shell=sh` before any commit.
 
-- [ ] **T-073** Write and verify `assets/scripts/homebrew-install.sh` — idempotent, unattended, exits non-zero on failure
+- [x] **T-073** Write and verify `assets/scripts/homebrew-install.sh` — idempotent, unattended, exits non-zero on failure
 - [ ] **T-074** Write and verify `assets/scripts/omz-install.sh` — `RUNZSH=no CHSH=no`, no interactive prompts
 - [ ] **T-075** Write and verify `assets/scripts/sdkman-install.sh` — official installer, unattended
 - [ ] **T-076** Write and verify `assets/scripts/docker-linux.sh` — apt repo setup + install + `usermod -aG docker $USER`; idempotent (checks if user already in group)
