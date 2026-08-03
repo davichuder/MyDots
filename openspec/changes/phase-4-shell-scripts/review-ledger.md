@@ -46,3 +46,23 @@ Only the deterministic `HOME` isolation warning converged. The user authorized i
 | JD-T074-001 | judgment-day | `internal/installer/runner/runner_test.go:533-580` | WARNING | verified | Both shared shipped-script tests now set `HOME` to independent `t.TempDir()` values before invoking scripts, preventing a real `~/.oh-my-zsh` from bypassing stubs. | Both judges reproduced focused and full-suite success and approved the resolution. |
 
 JD-T074-002 and JD-T074-003 remain non-convergent informational first-pass signals outside the authorized fix scope. T-074 reached terminal `JUDGMENT: APPROVED` with zero confirmed CRITICAL or real WARNING findings remaining.
+
+## Judgment Day — T-075 Apply Round 1
+
+**State:** ESCALATED — one judge reported a supported-macOS Bash-version defect; the second judge reported no real warnings.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T075-001 | judgment-day | `assets/scripts/sdkman-install.sh:26-29,40` | WARNING | info | The official SDKMAN installer requires Bash 4+, while stock macOS 15 provides Bash 3.2. The wrapper checks only that `bash` exists, so a normal supported macOS install can pass preflight and fail upstream. | Suspect; Judge A reproduced the platform mismatch, while Judge B reported no real warning and did not evaluate Bash major version. |
+
+The finding is concrete but non-convergent. Per Judgment Day rules it requires explicit triage before any fix; no automatic remediation was applied.
+
+## Judgment Day — T-075 Apply Round 2
+
+**State:** APPROVED — both blind judges verified the Bash 4+ compatibility gate.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T075-001 | judgment-day | `assets/scripts/sdkman-install.sh` | WARNING | verified | The wrapper resolves `bash --version` before `mktemp` or `curl`, accepts parsed major version 4 or newer, and fails Bash 3.x or invalid output with an actionable Bash 4+ error. Deterministic tests fake Bash 3, invalid, and Bash 4 outputs without reading the host shell version. | Both judges reproduced early rejection, Bash 4+ acceptance, deterministic tests, and full regression success. |
+
+Only JD-T075-001 was addressed. No T-076+, Phase 3, or unrelated findings were changed. T-075 reached terminal `JUDGMENT: APPROVED` with zero confirmed CRITICAL or real WARNING findings remaining.

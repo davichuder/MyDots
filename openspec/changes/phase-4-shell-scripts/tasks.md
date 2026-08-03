@@ -29,7 +29,7 @@ Chain strategy: pending
 
 - [x] 1.1 **T-073** Audit `assets/scripts/homebrew-install.sh`; create RED evidence only for an unmet contract, minimally GREEN it, deterministically verify cleanup/failure/retry in `internal/installer/runner/runner_test.go`, ShellCheck, then update only T-073 in `docs/tasks.md` in one atomic Conventional Commit with WHY.
 - [x] 1.2 **T-074** Audit `assets/scripts/omz-install.sh` for script-owned `RUNZSH=no CHSH=no`; RED only for a gap, minimally GREEN, verify no prompts/failure/cleanup with fakes, ShellCheck, then update only T-074 with tests and docs in its atomic WHY commit.
-- [ ] 1.3 **T-075** Audit `assets/scripts/sdkman-install.sh`; RED only for a gap, minimally GREEN, verify POSIX execution, dependencies, cleanup, and propagated failure without network/root, ShellCheck, then update only T-075 in its atomic WHY commit.
+- [x] 1.3 **T-075** Audit `assets/scripts/sdkman-install.sh`; RED only for a gap, minimally GREEN, verify POSIX execution, dependencies, cleanup, and propagated failure without network/root, ShellCheck, then update only T-075 in its atomic WHY commit.
 
 ## Phase 2: Docker Safety Unit
 

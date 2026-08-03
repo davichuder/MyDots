@@ -534,7 +534,7 @@ func TestShippedInstallerScriptsRunUnderPOSIXSh(t *testing.T) {
 	binDir := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '%s\\n' 'echo downloaded-installer-ran'\n")
-	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\neval \"$(cat \"$1\")\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n    printf 'GNU bash, version 5.2.0\\n'\n    exit 0\nfi\neval \"$(cat \"$1\")\"\n")
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	scripts := []string{
@@ -851,6 +851,227 @@ func TestOhMyZshInstallScriptPropagatesInstallerFailureAndCleansUp(t *testing.T)
 	}
 	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
 	if len(entries) != 3 || entries[0] != "curl" || entries[1] != "sh:no:no" || !strings.HasPrefix(entries[2], "rm:") {
+		t.Errorf("commands = %q, want failed installer execution followed by cleanup", commands)
+	}
+}
+
+func TestSdkmanInstallScriptRunsOfficialInstallerUnattendedAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	homeDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/sdkman-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://get.sdkman.io\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf 'echo upstream-installer-ran\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n    printf 'GNU bash, version 5.2.0\\n'\n    exit 0\nfi\nprintf 'bash:%s:%s\\n' \"$SDKMAN_DIR\" \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        homeDir,
+		"TMPDIR":      tempDir,
+	})
+	if err != nil {
+		t.Fatalf("sdkman-install.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "upstream-installer-ran") || !strings.Contains(log, "SDKMAN installation complete") {
+		t.Errorf("sdkman-install.sh output = %q, want installer and completion output", log)
+	}
+	installerPath := filepath.Join(tempDir, "sdkman-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || entries[0] != "curl:https://get.sdkman.io" || !strings.HasPrefix(entries[1], "bash:") || !strings.Contains(entries[1], ".sdkman:") || !strings.HasPrefix(entries[2], "rm:") {
+		t.Errorf("commands = %q, want official curl, SDKMAN_DIR bash, and cleanup", commands)
+	}
+}
+
+func TestSdkmanInstallScriptSkipsWhenAlreadyInstalled(t *testing.T) {
+	binDir := t.TempDir()
+	homeDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	initFile := filepath.Join(homeDir, ".sdkman", "bin", "sdkman-init.sh")
+	if err := os.MkdirAll(filepath.Dir(initFile), 0755); err != nil {
+		t.Fatalf("MkdirAll SDKMAN directory: %v", err)
+	}
+	if err := os.WriteFile(initFile, []byte("# SDKMAN"), 0600); err != nil {
+		t.Fatalf("WriteFile SDKMAN init file: %v", err)
+	}
+	for _, command := range []string{"curl", "mktemp", "bash"} {
+		writeScriptStub(t, filepath.Join(binDir, command), "#!/bin/sh\nprintf '"+command+"\\n' >> \"$COMMAND_LOG\"\n")
+	}
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        homeDir,
+		"TMPDIR":      t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("sdkman-install.sh = %v, output: %s", err, log)
+	}
+	if got, want := log, "==> SDKMAN is already installed; skipping.\n"; got != want {
+		t.Errorf("sdkman-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("installer command ran for existing SDKMAN init file; stat error = %v", err)
+	}
+}
+
+func TestSdkmanInstallScriptValidatesDependenciesBeforeCreatingTemporaryInstaller(t *testing.T) {
+	tests := []struct {
+		name         string
+		installStubs func(t *testing.T, binDir, logFile string)
+		wantOutput   string
+	}{
+		{
+			name: "missing curl",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: curl is required to install SDKMAN.\n",
+		},
+		{
+			name: "missing mktemp",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: mktemp is required to install SDKMAN.\n",
+		},
+		{
+			name: "missing bash",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: bash is required to install SDKMAN.\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			tt.installStubs(t, binDir, logFile)
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+				"COMMAND_LOG": logFile,
+				"HOME":        t.TempDir(),
+				"TMPDIR":      t.TempDir(),
+			})
+			if err == nil {
+				t.Fatalf("sdkman-install.sh returned nil when %s", tt.name)
+			}
+			if log != tt.wantOutput {
+				t.Errorf("sdkman-install.sh output = %q, want %q", log, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer command ran when %s; stat error = %v", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestSdkmanInstallScriptRequiresBashFourOrNewerBeforeDownloading(t *testing.T) {
+	tests := []struct {
+		name          string
+		bashVersion   string
+		wantErr       bool
+		wantOutput    string
+		wantDownloads bool
+	}{
+		{
+			name:        "rejects Bash 3",
+			bashVersion: "GNU bash, version 3.2.57(1)-release (x86_64-apple-darwin23)\n",
+			wantErr:     true,
+			wantOutput:  "Error: Bash 4 or newer is required to install SDKMAN; found Bash 3. Upgrade Bash and ensure it is first on PATH.\n",
+		},
+		{
+			name:        "rejects invalid version",
+			bashVersion: "not a Bash version\n",
+			wantErr:     true,
+			wantOutput:  "Error: unable to determine the Bash version. SDKMAN requires Bash 4 or newer; install Bash 4+ and ensure it is first on PATH.\n",
+		},
+		{
+			name:          "accepts Bash 4",
+			bashVersion:   "GNU bash, version 4.4.23(1)-release (x86_64-pc-linux-gnu)\n",
+			wantOutput:    "==> Downloading SDKMAN install script...\nupstream-installer-ran\n==> SDKMAN installation complete\n",
+			wantDownloads: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/sdkman-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'echo upstream-installer-ran\\n'\n")
+			writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n    printf '%s' \"$BASH_VERSION_OUTPUT\"\n    exit 0\nfi\nprintf 'bash:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+				"BASH_VERSION_OUTPUT": tt.bashVersion,
+				"COMMAND_LOG":         logFile,
+				"HOME":                t.TempDir(),
+				"TMPDIR":              t.TempDir(),
+			})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("sdkman-install.sh error = %v, want error = %t; output: %s", err, tt.wantErr, log)
+			}
+			if got := log; got != tt.wantOutput {
+				t.Errorf("sdkman-install.sh output = %q, want %q", got, tt.wantOutput)
+			}
+
+			commands, err := os.ReadFile(logFile)
+			if !tt.wantDownloads && os.IsNotExist(err) {
+				return
+			}
+			if err != nil {
+				t.Fatalf("ReadFile(command log): %v", err)
+			}
+			if got := strings.Contains(string(commands), "curl\n"); got != tt.wantDownloads {
+				t.Errorf("download invoked = %t, want %t; commands = %q", got, tt.wantDownloads, commands)
+			}
+		})
+	}
+}
+
+func TestSdkmanInstallScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	homeDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/sdkman-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'exit 43\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n    printf 'GNU bash, version 5.2.0\\n'\n    exit 0\nfi\nprintf 'bash:%s\\n' \"$SDKMAN_DIR\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        homeDir,
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("sdkman-install.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "SDKMAN installation complete") {
+		t.Errorf("sdkman-install.sh output = %q, must not report success", log)
+	}
+	installerPath := filepath.Join(tempDir, "sdkman-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || entries[0] != "curl" || !strings.HasPrefix(entries[1], "bash:") || !strings.Contains(entries[1], ".sdkman") || !strings.HasPrefix(entries[2], "rm:") {
 		t.Errorf("commands = %q, want failed installer execution followed by cleanup", commands)
 	}
 }
