@@ -532,6 +532,7 @@ func TestScript(t *testing.T) {
 
 func TestShippedInstallerScriptsRunUnderPOSIXSh(t *testing.T) {
 	binDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
 	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '%s\\n' 'echo downloaded-installer-ran'\n")
 	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\neval \"$(cat \"$1\")\"\n")
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -559,6 +560,7 @@ func TestShippedInstallerScriptsRunUnderPOSIXSh(t *testing.T) {
 
 func TestShippedInstallerScriptsReturnDownloadFailure(t *testing.T) {
 	binDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
 	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")
 
 	scripts := []string{
@@ -685,6 +687,171 @@ func TestHomebrewInstallScriptPropagatesInstallerFailureAndCleansUp(t *testing.T
 	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
 	if len(entries) != 2 || entries[0] != "curl" || !strings.HasPrefix(entries[1], "rm:") {
 		t.Errorf("commands = %q, want failed download followed by cleanup", commands)
+	}
+}
+
+func TestOhMyZshInstallScriptRunsOfficialInstallerUnattendedAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/omz-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf 'echo upstream-installer-ran\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh:%s:%s:%s\\n' \"$RUNZSH\" \"$CHSH\" \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err != nil {
+		t.Fatalf("omz-install.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "upstream-installer-ran") || !strings.Contains(log, "Oh My Zsh installation complete") {
+		t.Errorf("omz-install.sh output = %q, want upstream installer and completion output", log)
+	}
+	installerPath := filepath.Join(tempDir, "omz-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || entries[0] != "curl:https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh" || !strings.HasPrefix(entries[1], "sh:no:no:") || !strings.HasPrefix(entries[2], "rm:") {
+		t.Errorf("commands = %q, want official curl, unattended sh, and cleanup", commands)
+	}
+}
+
+func TestOhMyZshInstallScriptSkipsWhenAlreadyInstalled(t *testing.T) {
+	binDir := t.TempDir()
+	homeDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	if err := os.Mkdir(filepath.Join(homeDir, ".oh-my-zsh"), 0755); err != nil {
+		t.Fatalf("Mkdir existing Oh My Zsh directory: %v", err)
+	}
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh\\n' >> \"$COMMAND_LOG\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        homeDir,
+		"TMPDIR":      t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("omz-install.sh = %v, output: %s", err, log)
+	}
+	if got, want := log, "==> Oh My Zsh is already installed; skipping.\n"; got != want {
+		t.Errorf("omz-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("installer command ran for existing Oh My Zsh directory; stat error = %v", err)
+	}
+}
+
+func TestOhMyZshInstallScriptValidatesDependenciesBeforeCreatingTemporaryInstaller(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh\\n' >> \"$COMMAND_LOG\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("omz-install.sh returned nil without curl")
+	}
+	if got, want := log, "Error: curl is required to install Oh My Zsh.\n"; got != want {
+		t.Errorf("omz-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("mktemp or sh ran without curl; stat error = %v", err)
+	}
+}
+
+func TestOhMyZshInstallScriptValidatesRemainingDependenciesBeforeCreatingTemporaryInstaller(t *testing.T) {
+	tests := []struct {
+		name         string
+		installStubs func(t *testing.T, binDir, logFile string)
+		wantOutput   string
+	}{
+		{
+			name: "missing mktemp",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: mktemp is required to install Oh My Zsh.\n",
+		},
+		{
+			name: "missing sh",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: sh is required to install Oh My Zsh.\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			tt.installStubs(t, binDir, logFile)
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+				"COMMAND_LOG": logFile,
+				"HOME":        t.TempDir(),
+				"TMPDIR":      t.TempDir(),
+			})
+			if err == nil {
+				t.Fatalf("omz-install.sh returned nil when %s", tt.name)
+			}
+			if log != tt.wantOutput {
+				t.Errorf("omz-install.sh output = %q, want %q", log, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer command ran when %s; stat error = %v", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestOhMyZshInstallScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/omz-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'exit 43\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh:%s:%s\\n' \"$RUNZSH\" \"$CHSH\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("omz-install.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "Oh My Zsh installation complete") {
+		t.Errorf("omz-install.sh output = %q, must not report success", log)
+	}
+	installerPath := filepath.Join(tempDir, "omz-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || entries[0] != "curl" || entries[1] != "sh:no:no" || !strings.HasPrefix(entries[2], "rm:") {
+		t.Errorf("commands = %q, want failed installer execution followed by cleanup", commands)
 	}
 }
 

@@ -553,7 +553,7 @@ Each module task: tests cover idempotence (already installed → skip), install 
 All scripts must pass `shellcheck --shell=sh` before any commit.
 
 - [x] **T-073** Write and verify `assets/scripts/homebrew-install.sh` — idempotent, unattended, exits non-zero on failure
-- [ ] **T-074** Write and verify `assets/scripts/omz-install.sh` — `RUNZSH=no CHSH=no`, no interactive prompts
+- [x] **T-074** Write and verify `assets/scripts/omz-install.sh` — `RUNZSH=no CHSH=no`, no interactive prompts
 - [ ] **T-075** Write and verify `assets/scripts/sdkman-install.sh` — official installer, unattended
 - [ ] **T-076** Write and verify `assets/scripts/docker-linux.sh` — apt repo setup + install + `usermod -aG docker $USER`; idempotent (checks if user already in group)
 - [x] **T-077** Write and verify `assets/scripts/font-linux.sh` — reads `$FONT_NAME` env var, downloads zip from nerdfonts GitHub releases, extracts to `~/.local/share/fonts/`, runs `fc-cache -fv`. Note: `unzip` must be available; script must check and fail clearly if missing.

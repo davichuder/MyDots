@@ -24,3 +24,25 @@ Judge B returned an empty ledger initially. The user authorized all three correc
 | JD-T073-004 | judgment-day | `internal/installer/runner/runner_test.go:994-1008` | SUGGESTION | info | Judge B observed helper duplication; behavior and isolation remain correct. | Suspect; non-blocking. |
 
 Warnings and suggestions are informational under the severity floor and do not enter a fix/re-judge loop.
+
+## Judgment Day — T-074 Apply Round 1
+
+**State:** FIX APPLIED — pending independent re-judgment; one real warning converged across both blind judges; no CRITICAL findings.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T074-001 | judgment-day | `internal/installer/runner/runner_test.go:533-580` | WARNING | info | The shared shipped-script success and download-failure tests inherit the developer's real `HOME`. With the new Oh My Zsh skip path, a machine that already has `~/.oh-my-zsh` bypasses the stubs and makes the suite host-state dependent. | Both judges independently confirmed the deterministic-isolation regression. |
+| JD-T074-002 | judgment-day | `assets/scripts/omz-install.sh:40` | WARNING | info | Judge A found that `RUNZSH=no CHSH=no` may still permit an upstream `.zshrc` overwrite prompt in a direct TTY invocation unless the official unattended option or equivalent confirmation setting is supplied. | Suspect; Judge B found no unattended-contract defect. |
+| JD-T074-003 | judgment-day | `assets/scripts/omz-install.sh:11-14` | WARNING | info | Judge A treated any existing `.oh-my-zsh` directory as a concrete partial-install false-success risk; Judge B classified the same edge as theoretical and consistent with the approved module-owned skip boundary. | Suspect; assessment did not converge. |
+
+Only the deterministic `HOME` isolation warning converged. The user authorized its scoped fix: both shared shipped-script tests now set `HOME` to `t.TempDir()`. The focused shared tests (8 passed), full Go suite (12 packages passed), formatting/diff checks, and exact WSL ShellCheck gate passed; independent re-judgment remains judge-owned. Suspect findings JD-T074-002 and JD-T074-003 remain unaddressed.
+
+## Judgment Day — T-074 Apply Round 2
+
+**State:** APPROVED — both blind judges verified the authorized deterministic-isolation fix.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T074-001 | judgment-day | `internal/installer/runner/runner_test.go:533-580` | WARNING | verified | Both shared shipped-script tests now set `HOME` to independent `t.TempDir()` values before invoking scripts, preventing a real `~/.oh-my-zsh` from bypassing stubs. | Both judges reproduced focused and full-suite success and approved the resolution. |
+
+JD-T074-002 and JD-T074-003 remain non-convergent informational first-pass signals outside the authorized fix scope. T-074 reached terminal `JUDGMENT: APPROVED` with zero confirmed CRITICAL or real WARNING findings remaining.
