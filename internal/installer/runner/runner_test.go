@@ -1411,6 +1411,91 @@ func TestShippedFontLinuxScriptStopsWhenUnzipIsMissing(t *testing.T) {
 	}
 }
 
+func TestShippedFontLinuxScriptValidatesRequiredToolsBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name       string
+		missing    string
+		wantOutput string
+	}{
+		{name: "curl", missing: "curl", wantOutput: "Error: curl is required to install Nerd Fonts.\n"},
+		{name: "mktemp", missing: "mktemp", wantOutput: "Error: mktemp is required to install Nerd Fonts.\n"},
+		{name: "fc-cache", missing: "fc-cache", wantOutput: "Error: fc-cache is required to install Nerd Fonts.\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			for command, script := range map[string]string{
+				"curl":     "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n",
+				"mktemp":   "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"$1\"\n",
+				"mkdir":    "#!/bin/sh\nprintf 'mkdir\\n' >> \"$COMMAND_LOG\"\n",
+				"rm":       "#!/bin/sh\nprintf 'rm\\n' >> \"$COMMAND_LOG\"\n",
+				"unzip":    "#!/bin/sh\nprintf 'unzip\\n' >> \"$COMMAND_LOG\"\n",
+				"fc-cache": "#!/bin/sh\nprintf 'fc-cache\\n' >> \"$COMMAND_LOG\"\n",
+			} {
+				if command != tt.missing {
+					writeScriptStub(t, filepath.Join(binDir, command), script)
+				}
+			}
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("COMMAND_LOG", logFile)
+			t.Setenv("FONT_NAME", "Hack.zip")
+
+			log, err := runPOSIXScriptWithPath(t, "assets/scripts/font-linux.sh", binDir)
+			if err == nil {
+				t.Fatalf("font-linux.sh returned nil without %s", tt.missing)
+			}
+			if got := log; got != tt.wantOutput {
+				t.Errorf("font-linux.sh output = %q, want %q", got, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer mutated state without %s; stat error = %v", tt.missing, err)
+			}
+		})
+	}
+}
+
+func TestShippedFontLinuxScriptRepeatsWithOverwriteAndCleansEachArchive(t *testing.T) {
+	binDir := t.TempDir()
+	fontHome := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'archive' > \"$3\"\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\n[ \"$1\" = \"-o\" ] || exit 21\nprintf 'unzip:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\nprintf 'cache:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", fontHome)
+	t.Setenv("TMPDIR", tempDir)
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	for range 2 {
+		log, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir)
+		if err != nil {
+			t.Fatalf("font-linux.sh = %v, output: %s", err, log)
+		}
+	}
+
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 6 || !strings.HasPrefix(entries[0], "curl:") || !strings.HasPrefix(entries[3], "curl:") ||
+		entries[1] != "unzip:"+strings.TrimPrefix(entries[0], "curl:") ||
+		entries[4] != "unzip:"+strings.TrimPrefix(entries[3], "curl:") ||
+		!strings.HasPrefix(entries[2], "cache:") || !strings.HasPrefix(entries[5], "cache:") {
+		t.Errorf("commands = %q, want two curl/unzip/cache installation sequences", commands)
+		return
+	}
+	for _, entry := range []string{entries[0], entries[3]} {
+		archive := strings.TrimPrefix(entry, "curl:")
+		if _, err := os.Stat(archive); !os.IsNotExist(err) {
+			t.Errorf("temporary archive %q was not removed after installation; stat error = %v", archive, err)
+		}
+	}
+}
+
 func TestShippedFontLinuxScriptStopsWhenExtractionFails(t *testing.T) {
 	binDir := t.TempDir()
 	logFile := filepath.Join(t.TempDir(), "commands.log")

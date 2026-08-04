@@ -88,3 +88,13 @@ Only JD-T076-001 enters the fix loop. Explicit user authorization is required be
 | JD-T076-001 | judgment-day | `assets/scripts/docker-linux.sh:13-46` | CRITICAL | verified | The Docker-present branch skips only APT/package work, then proceeds to the fail-closed `id -nG "$USER"` exact-token probe and conditional `sudo usermod -aG docker "$USER"`. Deterministic fake-only tests cover retry/pre-existing non-membership, existing membership, probe failure, and usermod failure without network, root, or host mutation. | Both judges reproduced focused/full verification and confirmed no false-success path remains. |
 
 JD-T076-002 and JD-T076-003 remain informational and were not changed. T-076 reached terminal `JUDGMENT: APPROVED` with zero confirmed CRITICAL or real WARNING findings remaining.
+
+## Judgment Day — T-077 Apply Round 1
+
+**State:** APPROVED — both blind judges returned empty findings ledgers after Judge B's model was corrected.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T077-001 | judgment-day | T-077 work unit | WARNING | info | Judge A reproduced 11 focused font tests, 600 full-suite tests, clean formatting/ShellCheck, current release assets, and concluded the pre-existing checkbox is now earned. | Historical infrastructure note: the original Judge B model returned malformed empty output; after the user changed the model, replacement Judge B independently approved with zero findings. |
+
+Both judges verified the dependency preflight, safe name handling, official asset URL, cleanup, repeat behavior, failure propagation, deterministic tests, and tracker consistency. T-077 reached terminal `JUDGMENT: APPROVED` with zero confirmed findings.

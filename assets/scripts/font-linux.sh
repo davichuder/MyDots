@@ -18,6 +18,21 @@ if ! command -v unzip >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v curl >/dev/null 2>&1; then
+    echo "Error: curl is required to install Nerd Fonts." >&2
+    exit 1
+fi
+
+if ! command -v mktemp >/dev/null 2>&1; then
+    echo "Error: mktemp is required to install Nerd Fonts." >&2
+    exit 1
+fi
+
+if ! command -v fc-cache >/dev/null 2>&1; then
+    echo "Error: fc-cache is required to install Nerd Fonts." >&2
+    exit 1
+fi
+
 font_dir="$HOME/.local/share/fonts"
 archive=$(mktemp "${TMPDIR:-/tmp}/mydots-font.XXXXXX")
 trap 'rm -f "$archive"' 0 1 2 15
