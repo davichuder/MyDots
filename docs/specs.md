@@ -945,7 +945,7 @@ Exact package names must be verified from each tool's official docs before imple
 | **Criticality** | 🟡 NON-CRITICAL |
 | **Idempotence check** | `which ghostty` returns a path |
 | **Darwin strategy** | `brew-cask`: `brew install --cask ghostty` |
-| **Ubuntu native strategy** | `shell-script`: download `.tar.gz` from GitHub Releases → extract → move binary to `~/.local/bin/ghostty` → create `~/.config/ghostty/` |
+| **Ubuntu native strategy** | `shell-script`: download the community-maintained `ghostty-ubuntu` installer to a temporary file, execute it with `bash`, then remove the file. This is not an official Ghostty release tarball and never uses `curl \| bash`. |
 | **WSL2 strategy** | Same as Ubuntu native. Ghostty is not supported on Windows natively; the Linux binary runs via WSLg. Requires WSLg active (`$WAYLAND_DISPLAY` set). If WSLg not available, log warning and skip. |
 | **Version recorded** | `ghostty --version` |
 | **Dependencies** | M-01 |

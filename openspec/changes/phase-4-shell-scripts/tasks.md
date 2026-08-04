@@ -38,7 +38,7 @@ Chain strategy: pending
 ## Phase 3: Preserve and Correct Units
 
 - [x] 3.1 **T-077** Audit `assets/scripts/font-linux.sh`; preserve it if its font validation, `unzip -o`, cache, cleanup, and failure contracts pass; otherwise RED/GREEN minimally. Run isolated focused tests and ShellCheck, then only T-077 in its atomic WHY commit.
-- [ ] 3.2 **T-078** Verify-only audit `assets/scripts/ghostty-linux.sh`; preserve its temporary community `ghostty-ubuntu` flow, no `curl | bash`, cleanup, and failure propagation. Correct stale Ghostty contract in `docs/specs.md` and T-078 wording in `docs/tasks.md`; test, ShellCheck, atomic WHY commit.
+- [x] 3.2 **T-078** Verify-only audit `assets/scripts/ghostty-linux.sh`; preserve its temporary community `ghostty-ubuntu` flow, no `curl | bash`, cleanup, and failure propagation. Correct stale Ghostty contract in `docs/specs.md` and T-078 wording in `docs/tasks.md`; test and ShellCheck passed.
 - [ ] 3.3 **T-079** Audit `assets/scripts/caveman-install.sh` and `--only openclaw`; RED only for a gap, minimally GREEN, verify dependencies/cleanup/failure with fakes, ShellCheck, then only T-079 in its atomic WHY commit.
 
 ## Phase 4: CI and Whole-Phase Verification

@@ -98,3 +98,15 @@ JD-T076-002 and JD-T076-003 remain informational and were not changed. T-076 rea
 | JD-T077-001 | judgment-day | T-077 work unit | WARNING | info | Judge A reproduced 11 focused font tests, 600 full-suite tests, clean formatting/ShellCheck, current release assets, and concluded the pre-existing checkbox is now earned. | Historical infrastructure note: the original Judge B model returned malformed empty output; after the user changed the model, replacement Judge B independently approved with zero findings. |
 
 Both judges verified the dependency preflight, safe name handling, official asset URL, cleanup, repeat behavior, failure propagation, deterministic tests, and tracker consistency. T-077 reached terminal `JUDGMENT: APPROVED` with zero confirmed findings.
+
+## Judgment Day — T-078 Apply Round 1
+
+**State:** APPROVED — both blind judges found no BLOCKER or CRITICAL defects.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T078-001 | judgment-day | `openspec/changes/phase-4-shell-scripts/apply-progress.md:48` | WARNING | info | The recorded focused-test regex anchors at `TestShippedGhosttyLinuxScript$`, so it selects the documentation test but not prefixed script tests; the full suite still executes all cases. | Judge A only; evidence-label inaccuracy, non-blocking. |
+| JD-T078-002 | judgment-day | `internal/installer/runner/runner_test.go:1404-1415` | WARNING | info | The repeat test proves pairing and cleanup but does not explicitly assert that generated temporary paths differ. Production uses `mktemp`. | Judge A only; theoretical coverage signal. |
+| JD-T078-003 | judgment-day | `docs/specs.md:1332` | WARNING | info | SC-02 retains stale GitHub-release/`~/.local/bin/ghostty` wording that conflicts with the corrected community `ghostty-ubuntu` APT contract. | Judge B only; documentation consistency signal. |
+
+All warnings are informational under the severity floor and do not enter a fix/re-judge loop. Both judges verified no `curl | bash`, no invented official Ubuntu artifact, deterministic behavior, cleanup, failure propagation, and 606 passing full-suite tests. Terminal `JUDGMENT: APPROVED`.

@@ -1305,6 +1305,49 @@ func TestShippedGhosttyLinuxScriptValidatesRequiredToolsBeforeDownloading(t *tes
 	}
 }
 
+func TestShippedGhosttyLinuxScriptValidatesEveryRequiredToolBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name       string
+		missing    string
+		wantOutput string
+	}{
+		{name: "curl", missing: "curl", wantOutput: "Error: curl is required to install Ghostty on Ubuntu.\n"},
+		{name: "mktemp", missing: "mktemp", wantOutput: "Error: mktemp is required to install Ghostty on Ubuntu.\n"},
+		{name: "bash", missing: "bash", wantOutput: "Error: bash is required to install Ghostty on Ubuntu.\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			for command, script := range map[string]string{
+				"curl":   "#!/bin/sh\nprintf 'curl\n' >> \"$COMMAND_LOG\"\n",
+				"mktemp": "#!/bin/sh\nprintf 'mktemp\n' >> \"$COMMAND_LOG\"\n",
+				"bash":   "#!/bin/sh\nprintf 'bash\n' >> \"$COMMAND_LOG\"\n",
+			} {
+				if command != tt.missing {
+					writeScriptStub(t, filepath.Join(binDir, command), script)
+				}
+			}
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/ghostty-linux.sh", binDir, map[string]string{
+				"COMMAND_LOG": logFile,
+				"HOME":        t.TempDir(),
+				"TMPDIR":      t.TempDir(),
+			})
+			if err == nil {
+				t.Fatalf("ghostty-linux.sh returned nil without %s", tt.missing)
+			}
+			if got := log; got != tt.wantOutput {
+				t.Errorf("ghostty-linux.sh output = %q, want %q", got, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer mutated state without %s; stat error = %v", tt.missing, err)
+			}
+		})
+	}
+}
+
 func TestShippedGhosttyLinuxScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
 	binDir := t.TempDir()
 	logFile := filepath.Join(t.TempDir(), "commands.log")
@@ -1331,6 +1374,71 @@ func TestShippedGhosttyLinuxScriptPropagatesInstallerFailureAndCleansUp(t *testi
 	installerPath := strings.TrimPrefix(entries[0], "curl:")
 	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
 		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+}
+
+func TestShippedGhosttyLinuxScriptRepeatsWithFreshTemporaryInstallers(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\ncounter=\"$TMPDIR/ghostty-counter\"\ncount=0\nif [ -f \"$counter\" ]; then\n    IFS= read -r count < \"$counter\"\nfi\ncount=$((count + 1))\nprintf '%s' \"$count\" > \"$counter\"\npath=\"$TMPDIR/ghostty-installer-$count\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '#!/bin/sh\\necho upstream-installer-ran\\n' > \"$3\"\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+	for range 2 {
+		log, err := runPOSIXScriptWithEnv(t, "assets/scripts/ghostty-linux.sh", binDir, map[string]string{
+			"COMMAND_LOG": logFile,
+			"HOME":        t.TempDir(),
+			"TMPDIR":      tempDir,
+		})
+		if err != nil {
+			t.Fatalf("ghostty-linux.sh = %v, output: %s", err, log)
+		}
+	}
+
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 4 || !strings.HasPrefix(entries[0], "curl:") || !strings.HasPrefix(entries[2], "curl:") ||
+		entries[1] != "bash:"+strings.TrimPrefix(entries[0], "curl:") ||
+		entries[3] != "bash:"+strings.TrimPrefix(entries[2], "curl:") {
+		t.Errorf("commands = %q, want two isolated curl/bash installation sequences", commands)
+		return
+	}
+	for _, entry := range []string{entries[0], entries[2]} {
+		installerPath := strings.TrimPrefix(entry, "curl:")
+		if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+			t.Errorf("temporary installer %q was not removed after repeat execution; stat error = %v", installerPath, err)
+		}
+	}
+}
+
+func TestGhosttyDocumentationUsesTheCommunityUbuntuInstaller(t *testing.T) {
+	repoRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("Abs repository root: %v", err)
+	}
+
+	specification, err := os.ReadFile(filepath.Join(repoRoot, "docs", "specs.md"))
+	if err != nil {
+		t.Fatalf("ReadFile Ghostty specification: %v", err)
+	}
+	if !strings.Contains(string(specification), "community-maintained `ghostty-ubuntu` installer") {
+		t.Errorf("Ghostty specification must name the community-maintained ghostty-ubuntu installer")
+	}
+	if strings.Contains(string(specification), "download `.tar.gz` from GitHub Releases") {
+		t.Errorf("Ghostty specification must not describe a nonexistent official Ubuntu tarball")
+	}
+
+	tasks, err := os.ReadFile(filepath.Join(repoRoot, "docs", "tasks.md"))
+	if err != nil {
+		t.Fatalf("ReadFile Ghostty task: %v", err)
+	}
+	if !strings.Contains(string(tasks), "community `ghostty-ubuntu` installer") {
+		t.Errorf("T-078 must name the community ghostty-ubuntu installer")
 	}
 }
 
