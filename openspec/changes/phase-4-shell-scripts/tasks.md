@@ -33,7 +33,7 @@ Chain strategy: pending
 
 ## Phase 2: Docker Safety Unit
 
-- [ ] 2.1 **T-076** Add deterministic RED cases, then minimally harden `assets/scripts/docker-linux.sh`: prerequisites, fresh temp cleanup, Docker skip/retry, `id -nG` failure stop, exact `docker` token probe, and propagated `usermod`; focused fake-tool tests, ShellCheck, then only T-076 and its behavior/docs in one atomic WHY commit.
+- [x] 2.1 **T-076** Add deterministic RED cases, then minimally harden `assets/scripts/docker-linux.sh`: prerequisites, fresh temp cleanup, Docker skip/retry, `id -nG` failure stop, exact `docker` token probe, and propagated `usermod`; focused fake-tool tests, ShellCheck, then only T-076 and its behavior/docs in one atomic WHY commit.
 
 ## Phase 3: Preserve and Correct Units
 

@@ -1076,6 +1076,131 @@ func TestSdkmanInstallScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) 
 	}
 }
 
+func TestDockerLinuxScriptInstallsThroughOfficialAptInstallerAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/docker-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://get.docker.com\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf 'printf \\\"apt-repository-setup\\\\napt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin\\\\n\\\"\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "sudo"), "#!/bin/sh\nprintf 'sudo:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\nexec \"$@\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "id"), "#!/bin/sh\nprintf 'id:%s:%s\\n' \"$1\" \"$2\" >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"$GROUPS_OUTPUT\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "getent"), "#!/bin/sh\nexit 0\n")
+	writeScriptStub(t, filepath.Join(binDir, "usermod"), "#!/bin/sh\nprintf 'usermod:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/docker-linux.sh", binDir, map[string]string{
+		"COMMAND_LOG":   logFile,
+		"GROUPS_OUTPUT": "users wheel",
+		"TMPDIR":        tempDir,
+		"USER":          "alice",
+	})
+	if err != nil {
+		t.Fatalf("docker-linux.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "apt-repository-setup") || !strings.Contains(log, "apt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin") || !strings.Contains(log, "Docker installation complete") {
+		t.Errorf("docker-linux.sh output = %q, want official apt setup, install sequence, and completion", log)
+	}
+	installerPath := filepath.Join(tempDir, "docker-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	for _, want := range []string{
+		"curl:https://get.docker.com",
+		"sudo:sh ",
+		"id:-nG:alice",
+		"sudo:usermod -aG docker alice",
+		"rm:",
+	} {
+		if !strings.Contains(string(commands), want) {
+			t.Errorf("commands = %q, want %q", commands, want)
+		}
+	}
+}
+
+func TestDockerLinuxScriptGroupSafetyContracts(t *testing.T) {
+	tests := []struct {
+		name            string
+		groups          string
+		idStatus        string
+		usermodStatus   string
+		user            string
+		wantErr         bool
+		wantSuccess     bool
+		wantUsermod     bool
+		wantPackageWork bool
+		wantOutput      string
+		dockerInstalled bool
+	}{
+		{name: "pre-existing Docker reconciles missing group membership without package work", groups: "users wheel", user: "alice", wantSuccess: true, wantUsermod: true, dockerInstalled: true},
+		{name: "pre-existing Docker with exact group membership skips usermod and package work", groups: "notdocker docker-foo docker", user: "alice", wantSuccess: true, dockerInstalled: true},
+		{name: "pre-existing Docker probe failure stops before group mutation", idStatus: "19", user: "alice", wantErr: true, dockerInstalled: true},
+		{name: "pre-existing Docker non-member propagates usermod failure without false success", groups: "users wheel", usermodStatus: "23", user: "alice", wantErr: true, wantUsermod: true, dockerInstalled: true},
+		{name: "fresh install exact docker token skips redundant group mutation", groups: "notdocker docker-foo docker", user: "alice", wantSuccess: true, wantPackageWork: true},
+		{name: "missing USER fails before any mutation even with pre-existing Docker", groups: "users", wantErr: true, wantOutput: "Error: USER must be set to configure Docker group membership.\n", dockerInstalled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			if tt.dockerInstalled {
+				writeScriptStub(t, filepath.Join(binDir, "docker"), "#!/bin/sh\nexit 0\n")
+			}
+			writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/docker-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'exit 0\\n'\n")
+			writeScriptStub(t, filepath.Join(binDir, "sudo"), "#!/bin/sh\nprintf 'sudo:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\nexec \"$@\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nexec /bin/sh \"$1\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "id"), "#!/bin/sh\nprintf 'id:%s:%s\\n' \"$1\" \"$2\" >> \"$COMMAND_LOG\"\n[ \"${ID_STATUS:-0}\" -eq 0 ] || exit \"$ID_STATUS\"\nprintf '%s\\n' \"$GROUPS_OUTPUT\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "getent"), "#!/bin/sh\nexit 0\n")
+			writeScriptStub(t, filepath.Join(binDir, "usermod"), "#!/bin/sh\nprintf 'usermod:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\nexit \"${USERMOD_STATUS:-0}\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/docker-linux.sh", binDir, map[string]string{
+				"COMMAND_LOG":    logFile,
+				"GROUPS_OUTPUT":  tt.groups,
+				"ID_STATUS":      tt.idStatus,
+				"TMPDIR":         t.TempDir(),
+				"USER":           tt.user,
+				"USERMOD_STATUS": tt.usermodStatus,
+			})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("docker-linux.sh error = %v, want error = %t; output: %s", err, tt.wantErr, log)
+			}
+			if tt.wantOutput != "" && log != tt.wantOutput {
+				t.Errorf("docker-linux.sh output = %q, want %q", log, tt.wantOutput)
+			}
+			if strings.Contains(log, "Docker installation complete") != tt.wantSuccess {
+				t.Errorf("success output = %t, want %t; output: %q", strings.Contains(log, "Docker installation complete"), tt.wantSuccess, log)
+			}
+			commands, readErr := os.ReadFile(logFile)
+			if readErr != nil && tt.user != "" {
+				t.Fatalf("ReadFile(command log): %v", readErr)
+			}
+			if tt.user == "" && !os.IsNotExist(readErr) {
+				t.Errorf("commands ran before USER validation: %q", commands)
+			}
+			if tt.user != "" && !strings.Contains(string(commands), "id:-nG:"+tt.user) {
+				t.Errorf("commands = %q, want group probe for %q", commands, tt.user)
+			}
+			packageWorkRan := strings.Contains(string(commands), "curl\n") || strings.Contains(string(commands), "sudo:sh ")
+			if packageWorkRan != tt.wantPackageWork {
+				t.Errorf("package work ran = %t, want %t; commands = %q", packageWorkRan, tt.wantPackageWork, commands)
+			}
+			if strings.Contains(string(commands), "usermod:") != tt.wantUsermod {
+				t.Errorf("usermod invoked = %t, want %t; commands = %q", strings.Contains(string(commands), "usermod:"), tt.wantUsermod, commands)
+			}
+			if tt.wantUsermod && !strings.Contains(string(commands), "sudo:usermod -aG docker "+tt.user) {
+				t.Errorf("commands = %q, want usermod for %q", commands, tt.user)
+			}
+		})
+	}
+}
+
 func TestShippedCavemanScriptReturnsDownloadFailure(t *testing.T) {
 	binDir := t.TempDir()
 	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")

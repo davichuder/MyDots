@@ -66,3 +66,25 @@ The finding is concrete but non-convergent. Per Judgment Day rules it requires e
 | JD-T075-001 | judgment-day | `assets/scripts/sdkman-install.sh` | WARNING | verified | The wrapper resolves `bash --version` before `mktemp` or `curl`, accepts parsed major version 4 or newer, and fails Bash 3.x or invalid output with an actionable Bash 4+ error. Deterministic tests fake Bash 3, invalid, and Bash 4 outputs without reading the host shell version. | Both judges reproduced early rejection, Bash 4+ acceptance, deterministic tests, and full regression success. |
 
 Only JD-T075-001 was addressed. No T-076+, Phase 3, or unrelated findings were changed. T-075 reached terminal `JUDGMENT: APPROVED` with zero confirmed CRITICAL or real WARNING findings remaining.
+
+## Judgment Day — T-076 Apply Round 1
+
+**State:** ESCALATED — both blind judges confirmed a retry false-success defect.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T076-001 | judgment-day | `assets/scripts/docker-linux.sh:13-16` | CRITICAL | open | `command -v docker` skips the entire script, including group reconciliation. If installation succeeds but `id` or `usermod` fails, the retry exits successfully because Docker now exists while the user remains outside the `docker` group. It also cannot reconcile a pre-existing Docker installation. | Both judges independently confirmed the normal-use retry/pre-existing-install defect; severity differed between CRITICAL and real WARNING. |
+| JD-T076-002 | judgment-day | `assets/scripts/docker-linux.sh:18` | WARNING | info | `getent` is validated but unused. Supported Debian/Ubuntu targets normally provide it, so impact is limited to stripped environments. | Judge B only; theoretical INFO. |
+| JD-T076-003 | judgment-day | `assets/scripts/docker-linux.sh:27` | WARNING | info | Cleanup uses `rm` without explicit validation. Supported targets provide it as an essential utility. | Judge B only; theoretical INFO. |
+
+Only JD-T076-001 enters the fix loop. Explicit user authorization is required before scoped remediation and blind re-judgment.
+
+## Judgment Day — T-076 Apply Round 2
+
+**State:** APPROVED — both blind judges verified the retry/group-reconciliation fix.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T076-001 | judgment-day | `assets/scripts/docker-linux.sh:13-46` | CRITICAL | verified | The Docker-present branch skips only APT/package work, then proceeds to the fail-closed `id -nG "$USER"` exact-token probe and conditional `sudo usermod -aG docker "$USER"`. Deterministic fake-only tests cover retry/pre-existing non-membership, existing membership, probe failure, and usermod failure without network, root, or host mutation. | Both judges reproduced focused/full verification and confirmed no false-success path remains. |
+
+JD-T076-002 and JD-T076-003 remain informational and were not changed. T-076 reached terminal `JUDGMENT: APPROVED` with zero confirmed CRITICAL or real WARNING findings remaining.
