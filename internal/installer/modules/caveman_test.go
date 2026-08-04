@@ -3,7 +3,8 @@ package modules
 import (
 	"bytes"
 	"context"
-	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"testing/fstest"
 
@@ -46,29 +47,51 @@ func TestCaveman_Dependencies(t *testing.T) {
 // --- IsInstalled ---
 
 func TestCaveman_IsInstalled(t *testing.T) {
-	t.Run("caveman on PATH returns true", func(t *testing.T) {
-		withMockExecutor(t, &mockExecutor{
-			lookPathFunc: func(name string) (string, error) {
-				return "/usr/local/bin/" + name, nil
-			},
-		})
-		m := CavemanModule{}
-		if !m.IsInstalled(platform.Platform{}) {
-			t.Error("expected true when caveman is on PATH")
-		}
-	})
+	tests := []struct {
+		name         string
+		skill        string
+		skillDir     bool
+		missingSkill bool
+		soul         string
+		installed    bool
+	}{
+		{name: "valid complete state", skill: "skill", soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n", installed: true},
+		{name: "duplicate begin markers", skill: "skill", soul: "<!-- caveman-begin -->\n<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+		{name: "duplicate end markers", skill: "skill", soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n<!-- caveman-end -->\n"},
+		{name: "orphan begin marker", skill: "skill", soul: "<!-- caveman-begin -->\n"},
+		{name: "orphan end marker", skill: "skill", soul: "<!-- caveman-end -->\n"},
+		{name: "reversed markers", skill: "skill", soul: "<!-- caveman-end -->\n<!-- caveman-begin -->\n"},
+		{name: "missing skill", missingSkill: true, soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+		{name: "empty skill", skill: "", soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+		{name: "skill path is directory", skillDir: true, soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+	}
 
-	t.Run("caveman not on PATH returns false", func(t *testing.T) {
-		withMockExecutor(t, &mockExecutor{
-			lookPathFunc: func(name string) (string, error) {
-				return "", errors.New("not found")
-			},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			t.Setenv("OPENCLAW_WORKSPACE", workspace)
+			skillPath := filepath.Join(workspace, "skills", "caveman", "SKILL.md")
+			if !tt.missingSkill {
+				if err := os.MkdirAll(filepath.Dir(skillPath), 0755); err != nil {
+					t.Fatalf("MkdirAll skill directory: %v", err)
+				}
+				if tt.skillDir {
+					if err := os.Mkdir(skillPath, 0755); err != nil {
+						t.Fatalf("Mkdir skill path: %v", err)
+					}
+				} else if err := os.WriteFile(skillPath, []byte(tt.skill), 0600); err != nil {
+					t.Fatalf("WriteFile skill: %v", err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(workspace, "SOUL.md"), []byte(tt.soul), 0600); err != nil {
+				t.Fatalf("WriteFile SOUL.md: %v", err)
+			}
+
+			if got := (CavemanModule{}).IsInstalled(platform.Platform{}); got != tt.installed {
+				t.Errorf("IsInstalled() = %t, want %t", got, tt.installed)
+			}
 		})
-		m := CavemanModule{}
-		if m.IsInstalled(platform.Platform{}) {
-			t.Error("expected false when caveman is not on PATH")
-		}
-	})
+	}
 }
 
 // --- Install ---
@@ -138,7 +161,7 @@ func TestCaveman_AuditInfo(t *testing.T) {
 	})
 	m := CavemanModule{}
 	got := m.AuditInfo()
-	if got != "caveman 0.3.0" {
-		t.Errorf("AuditInfo() = %q, want %q", got, "caveman 0.3.0")
+	if got != "OpenClaw workspace skill" {
+		t.Errorf("AuditInfo() = %q, want %q", got, "OpenClaw workspace skill")
 	}
 }

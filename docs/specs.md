@@ -784,10 +784,10 @@
 | Field | Value |
 | ----- | ----- |
 | **Criticality** | 🟡 NON-CRITICAL |
-| **Idempotence check** | `which caveman` returns a path |
-| **Darwin strategy** | `curl-script`: `curl -fsSL https://raw.githubusercontent.com/JuliusBrussee/caveman/main/install.sh \| bash -s -- --only openclaw` |
+| **Idempotence check** | OpenClaw workspace contains `skills/caveman/SKILL.md` and the Caveman marker in `SOUL.md` |
+| **Darwin strategy** | `curl-script`: official `install.sh --only openclaw --force`; Node.js 18+ and `npx` are required, and `--force` initializes the OpenClaw workspace when absent |
 | **Ubuntu strategy** | Same as Darwin |
-| **Version recorded** | `caveman --version` |
+| **Version recorded** | OpenClaw workspace skill |
 | **Dependencies** | None |
 | **Reference** | <https://github.com/juliusbrussee/caveman> |
 

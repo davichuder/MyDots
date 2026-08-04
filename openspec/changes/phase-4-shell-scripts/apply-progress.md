@@ -3,8 +3,8 @@
 ## Delivery
 
 - Mode: single PR with maintainer-approved `size:exception`.
-- Work units completed: T-073, T-074, T-075, T-076, T-077, and T-078; this batch: T-078 only.
-- Boundary: Ghostty verify-only wrapper audit, documentation-contract correction, deterministic repeat and dependency proof, temporary installer cleanup, and failure propagation; no T-079 onward or Phase 3 artifacts.
+- Work units completed: T-073 through T-078; this batch: JD-T079-001 and JD-T079-002 remediation only.
+- Boundary: Caveman clean-install prerequisites, documented OpenClaw workspace initialization, durable installed-state detection, and deterministic repeat/offline proof; no T-080, final verification, or Phase 3 artifacts.
 
 ## Task Status
 
@@ -14,7 +14,7 @@
 - [x] 2.1 **T-076** — implementation, deterministic Go evidence, and mandatory ShellCheck pass.
 - [x] 3.1 **T-077** — audit, deterministic Go evidence, and mandatory ShellCheck pass.
 - [x] 3.2 **T-078** — audit, deterministic Go evidence, documentation correction, and mandatory ShellCheck pass.
-- [ ] 3.3 **T-079**
+- [ ] 3.3 **T-079** — JD-T079-001/002 remediation applied; pending blind re-judgment.
 - [ ] 4.1 **T-080**
 - [ ] 4.2 Final whole-phase verification
 
@@ -28,6 +28,7 @@
 | T-076 | `internal/installer/runner/runner_test.go` | Deterministic `/bin/sh` contract | PASS — shared shipped-installer safety net: 8/8 cases | PASS — before production edits, 5/6 focused cases failed: fixed `/tmp` path caused the fake official installer to be missing; Docker did not skip, clean a fresh temporary file, validate `$USER`, probe groups, or control `usermod` | PASS — 7/7 focused Docker cases after minimal hardening; JD-T076-001 RED: 2 passed, 5 failed before the scoped retry fix | PASS — official `get.docker.com` APT setup/install sequence, pre-existing Docker group reconciliation, exact `docker` token detection amid near-matches, failed `id -nG` stop before `usermod`, failed `usermod` propagation/no false success, and missing `$USER` before mutation | PASS — scoped retry fix separates package work from group reconciliation; POSIX `/bin/sh` and fake-only harness retained |
 | T-077 | `internal/installer/runner/runner_test.go` | Deterministic `/bin/sh` contract | PASS — 6 pre-existing focused font cases | PASS — new missing-`curl`, `mktemp`, and `fc-cache` preflight cases failed before production edits; `curl` and `fc-cache` paths performed mutation before a clear error | PASS — 11 focused font cases after minimal preflight; repeat test confirms two `unzip -o` sequences with separate cleaned temporary archives | PASS — correct `ryanoasis/nerd-fonts/releases/latest/download/$FONT_NAME` asset, safe filename rejection, isolated HOME/TMPDIR, extraction/cache/download failure propagation, no false success | PASS — retained POSIX `/bin/sh`; no unrelated refactor |
 | T-078 | `internal/installer/runner/runner_test.go` | Deterministic `/bin/sh` wrapper and documentation contract | PASS — 4 pre-existing focused Ghostty cases | PASS — documentation contract test failed before edits because `docs/specs.md` described an official tarball and `docs/tasks.md` omitted the community installer | PASS — 9 focused Ghostty cases after correction | PASS — community `mkasberg/ghostty-ubuntu` source, explicit `curl`/`mktemp`/`bash` preflight before mutation, temporary ownership/cleanup, no `curl | bash`, installer failure propagation/no false success, and two-run fresh temporary-file cleanup | PASS — verify-only script retained; added only deterministic coverage and corrected stale documentation |
+| T-079 JD remediation | `internal/installer/{runner,modules}` | Deterministic `/bin/sh` and module contracts | PASS — new Node/npx/workspace/durable-artifact tests failed before production changes: clean prerequisites mutated, `--force` was absent, direct repeat redownloaded, and the module required a nonexistent executable | PASS — focused runner test: 13 cases; module test: 8 cases | PASS — Node 16 rejection, Node 20/npx clean-workspace invocation, missing Node/npx before mutation, skill+complete SOUL marker detection, partial-marker rejection, offline skip, failure propagation, and no false completion | PASS — fakes and temp homes/workspaces only; no network, root, or host OpenClaw state |
 
 ## Verification
 
@@ -51,6 +52,21 @@
 - PASS: `rtk go test ./internal/installer/runner -run '^(TestShippedInstallerScriptsRunUnderPOSIXSh|TestShippedInstallerScriptsReturnDownloadFailure)$' -count=1` — 8 shared POSIX and download-failure cases passed.
 - PASS: `rtk go test ./...` — 606 passed in 12 packages.
 - PASS: `gofmt -d internal/installer/runner/runner_test.go` and `rtk git diff --check` — no output or whitespace errors.
+- PASS: exact WSL Test gate `wsl.exe -d Test --cd "D:\Descargas\proyectos futuros\MyDots-1" -- bash -lc "shellcheck --shell=sh assets/scripts/*.sh"` — zero findings.
+- PASS: final-round RED `rtk go test ./internal/installer/modules -run '^TestCaveman_IsInstalled$' -count=1` — 3 passed, 5 failed before strict artifact-completeness detection; no production code changed before this run.
+- PASS: final-round RED `rtk go test ./internal/installer/runner -run '^TestShippedCavemanScriptSkipsOfflineOnlyForCompleteDurableInstall$' -count=1` — 4 passed, 4 failed before strict artifact-completeness detection; no production code changed before this run.
+- PASS: final-round GREEN `rtk go test ./internal/installer/modules -run '^TestCaveman' -count=1` — 15 passed.
+- PASS: final-round GREEN `rtk go test ./internal/installer/runner -run '^TestShippedCavemanScript' -count=1` — 22 passed.
+- PASS: final-round shared safety `rtk go test ./internal/installer/runner -run '^(TestShippedInstallerScriptsRunUnderPOSIXSh|TestShippedInstallerScriptsReturnDownloadFailure)$' -count=1` — 8 passed.
+- PASS: final-round `rtk go test ./...` — 633 passed in 12 packages.
+- PASS: final-round `gofmt -d internal/installer/modules/caveman.go internal/installer/modules/caveman_test.go internal/installer/runner/runner_test.go` and `rtk git diff --check` — no output or whitespace errors.
+- PASS: final-round exact WSL `wsl.exe -d Test --cd "D:\Descargas\proyectos futuros\MyDots-1" -- bash -lc "shellcheck --shell=sh assets/scripts/*.sh"` — zero findings.
+- PASS: JD-T079 RED `rtk go test ./internal/installer/runner -run '^TestShippedCavemanScript' -count=1` — 7 passed, 6 failed before the scoped production remediation; clean Node/npx/workspace/repeat cases exposed the gaps.
+- PASS: JD-T079 GREEN `rtk go test ./internal/installer/runner -run '^TestShippedCavemanScript' -count=1` — 13 passed.
+- PASS: `go test ./internal/installer/modules -run '^TestCaveman' -count=1` — 8 passed.
+- PASS: `go test ./internal/installer/runner -run '^(TestShippedInstallerScriptsRunUnderPOSIXSh|TestShippedInstallerScriptsReturnDownloadFailure)$' -count=1` — 8 shared safety cases passed.
+- PASS: `go test ./...` — 12 packages passed (617 tests).
+- PASS: `gofmt -d internal/installer/modules/caveman.go internal/installer/modules/caveman_test.go internal/installer/runner/runner_test.go` and `git diff --check` — no output or whitespace errors.
 - PASS: exact WSL Test gate `wsl.exe -d Test --cd "D:\Descargas\proyectos futuros\MyDots-1" -- bash -lc "shellcheck --shell=sh assets/scripts/*.sh"` — zero findings.
 - PASS: baseline `rtk go test ./internal/installer/runner -run '^TestShippedFontLinuxScript' -count=1` — 6 passed before T-077 edits.
 - PASS: RED `rtk go test ./internal/installer/runner -run '^TestShippedFontLinuxScript' -count=1` — 6 passed, 4 failed before explicit dependency preflight; no production code changed before this run.
@@ -85,6 +101,17 @@
 - PASS: `gofmt -d internal/installer/runner/runner_test.go` and `rtk git diff --check` — no output or whitespace errors.
 - PASS: `rtk go test ./...` — 583 passed in 12 packages.
 - PASS: `wsl.exe -d Test --cd "D:\Descargas\proyectos futuros\MyDots-1" -- bash -lc "shellcheck --shell=sh assets/scripts/*.sh"` — zero findings; WSL emitted a non-fatal systemd user-session warning.
+- PASS: baseline `rtk go test ./internal/installer/runner -run '^TestShippedCavemanScript' -count=1` — 2 focused Caveman cases before T-079 edits.
+- PASS: RED `rtk go test ./internal/installer/runner -run '^TestShippedCavemanScript' -count=1` — 3 passed, 4 failed before dependency preflight; no production code changed before this run.
+- PASS: GREEN `rtk go test ./internal/installer/runner -run '^TestShippedCavemanScript' -count=1` — 7 passed after minimal preflight.
+- PASS: TRIANGULATE `rtk go test ./internal/installer/runner -run '^TestShippedCavemanScript' -count=1` — 8 passed after fresh-repeat cleanup coverage.
+- PASS: source/invocation RED `rtk go test ./internal/installer/runner -run '^TestShippedCavemanScript' -count=1` — 4 passed, 4 failed after official-source tests rejected `https://caveman.sh/install` and `sh`; no production code changed before this run.
+- PASS: source/invocation GREEN same focused command — 8 passed after switching to the documented JuliusBrussee installer and Bash invocation.
+- PASS: `rtk go test ./internal/installer/modules -run '^TestCaveman' -count=1` — 8 module installed-state and wrapper cases passed.
+- PASS: `rtk go test ./internal/installer/runner -run '^(TestShippedInstallerScriptsRunUnderPOSIXSh|TestShippedInstallerScriptsReturnDownloadFailure)$' -count=1` — 8 shared POSIX/download-failure cases passed.
+- PASS: `rtk go test ./...` — 612 passed in 12 packages.
+- PASS: `gofmt -d internal/installer/runner/runner_test.go` and `rtk git diff --check` — no output or whitespace errors.
+- PASS: exact WSL Test gate `wsl.exe -d Test --cd "D:\Descargas\proyectos futuros\MyDots-1" -- bash -lc "shellcheck --shell=sh assets/scripts/*.sh"` — zero findings.
 
 ## Completed Changes
 
@@ -111,7 +138,13 @@
 - `internal/installer/runner/runner_test.go`: add deterministic documentation-contract, all-dependency-before-mutation, and two-run fresh-temporary-installer cleanup evidence without network, root, package-manager mutation, or host Ghostty state.
 - `docs/specs.md` and `docs/tasks.md`: correct T-078 from a nonexistent official Ubuntu tarball to the community `ghostty-ubuntu` temporary-download installer, and mark only T-078 complete.
 - `openspec/changes/phase-4-shell-scripts/tasks.md`: mark only T-078 complete after its audit and passing evidence.
+- `assets/scripts/caveman-install.sh`: skip only complete durable OpenClaw artifacts, validate Node.js 18+, `npx`, and existing wrapper tools before mutation, and pass documented `--force` so the official flow initializes a missing workspace.
+- `internal/installer/modules/caveman.go`: detect the `--only openclaw` skill and complete SOUL marker rather than a nonexistent `caveman` executable; report the durable workspace integration without executing an unavailable binary.
+- `internal/installer/{runner,modules}` tests: add fake-only clean prerequisite, Node version, npx, workspace initialization invocation, complete/partial durable-state, offline skip, failure-propagation, and no-false-success proof.
+- `assets/scripts/caveman-install.sh` and `internal/installer/modules/caveman.go`: treat the installation as complete only when `SKILL.md` is a non-empty regular file and `SOUL.md` has exactly one ordered Caveman marker pair; duplicates, orphans, reversal, missing files, empty files, and directories remain repairable.
+- `internal/installer/{runner,modules}` tests: prove duplicate/orphan marker pairs, empty or directory `SKILL.md`, and every incomplete state cannot take the offline skip, while the sole complete state does.
+- `docs/specs.md`, `docs/tasks.md`, and `openspec/changes/phase-4-shell-scripts/tasks.md`: align T-079 with the official OpenClaw artifact contract and keep completion pending blind re-judgment.
 
 ## Completion
 
-T-073 through T-078 are complete. T-079 onward and Phase 3 remain untouched. This work unit is intentionally uncommitted; no PR action was taken.
+T-073 through T-078 are complete. JD-T079-001 and the final allowed JD-T079-002 fix are applied pending blind re-judgment; T-080, final whole-phase verification, and Phase 3 remain untouched. This work unit is intentionally uncommitted; no commit, push, or PR action was taken.

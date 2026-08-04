@@ -1204,6 +1204,8 @@ func TestDockerLinuxScriptGroupSafetyContracts(t *testing.T) {
 func TestShippedCavemanScriptReturnsDownloadFailure(t *testing.T) {
 	binDir := t.TempDir()
 	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nexit 0\n")
 
 	log, err := runPOSIXScript(t, "assets/scripts/caveman-install.sh", binDir)
 	if err == nil {
@@ -1216,7 +1218,9 @@ func TestShippedCavemanScriptReturnsDownloadFailure(t *testing.T) {
 
 func TestShippedCavemanScriptRunsDownloadedInstallerWithOpenclawOnly(t *testing.T) {
 	binDir := t.TempDir()
-	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\ncat <<'EOF'\n#!/bin/sh\nif [ \"$1\" = \"--only\" ] && [ \"$2\" = \"openclaw\" ]; then\n    echo caveman-installer-ran\nelse\n    exit 9\nfi\nEOF\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\ncat <<'EOF'\n#!/bin/sh\nif [ \"$1\" = \"--only\" ] && [ \"$2\" = \"openclaw\" ] && [ \"$3\" = \"--force\" ]; then\n    echo caveman-installer-ran\nelse\n    exit 9\nfi\nEOF\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nexit 0\n")
 
 	log, err := runPOSIXScript(t, "assets/scripts/caveman-install.sh", binDir)
 	if err != nil {
@@ -1227,6 +1231,253 @@ func TestShippedCavemanScriptRunsDownloadedInstallerWithOpenclawOnly(t *testing.
 	}
 	if !strings.Contains(log, "Caveman installation complete") {
 		t.Errorf("caveman script output = %q, want completion message", log)
+	}
+}
+
+func TestShippedCavemanScriptValidatesRequiredToolsBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name       string
+		missing    string
+		wantOutput string
+	}{
+		{name: "curl", missing: "curl", wantOutput: "Error: curl is required to install Caveman.\n"},
+		{name: "mktemp", missing: "mktemp", wantOutput: "Error: mktemp is required to install Caveman.\n"},
+		{name: "bash", missing: "bash", wantOutput: "Error: bash is required to install Caveman.\n"},
+		{name: "node", missing: "node", wantOutput: "Error: Node.js 18 or newer is required to install Caveman.\n"},
+		{name: "npx", missing: "npx", wantOutput: "Error: npx is required to install Caveman. Reinstall Node.js 18 or newer.\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			for command, script := range map[string]string{
+				"curl":   "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n",
+				"mktemp": "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n",
+				"bash":   "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n",
+				"node":   "#!/bin/sh\nprintf '20\\n'\n",
+				"npx":    "#!/bin/sh\nprintf 'npx\\n' >> \"$COMMAND_LOG\"\n",
+			} {
+				if command != tt.missing {
+					writeScriptStub(t, filepath.Join(binDir, command), script)
+				}
+			}
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+				"COMMAND_LOG": logFile,
+				"HOME":        t.TempDir(),
+				"TMPDIR":      t.TempDir(),
+			})
+			if err == nil {
+				t.Fatalf("caveman-install.sh returned nil without %s", tt.missing)
+			}
+			if log != tt.wantOutput {
+				t.Errorf("caveman-install.sh output = %q, want %q", log, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer mutated state without %s; stat error = %v", tt.missing, err)
+			}
+		})
+	}
+}
+
+func TestShippedCavemanScriptRejectsUnsupportedNodeBeforeDownloading(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	for command, script := range map[string]string{
+		"curl":   "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n",
+		"mktemp": "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n",
+		"bash":   "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n",
+		"node":   "#!/bin/sh\nprintf '16\\n'\n",
+		"npx":    "#!/bin/sh\nprintf 'npx\\n' >> \"$COMMAND_LOG\"\n",
+	} {
+		writeScriptStub(t, filepath.Join(binDir, command), script)
+	}
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("caveman-install.sh returned nil with Node 16")
+	}
+	if got, want := log, "Error: Node.js 18 or newer is required to install Caveman; found Node 16. Upgrade Node.js: https://nodejs.org\n"; got != want {
+		t.Errorf("caveman-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("installer mutated state with unsupported Node; stat error = %v", err)
+	}
+}
+
+func TestShippedCavemanScriptUsesNpxAndForceForCleanOpenclawWorkspace(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/caveman-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '#!/bin/sh\\nnpx -y github:JuliusBrussee/caveman --only openclaw --force\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nprintf 'npx:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG":        logFile,
+		"HOME":               t.TempDir(),
+		"OPENCLAW_WORKSPACE": filepath.Join(t.TempDir(), "workspace"),
+		"TMPDIR":             t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("caveman-install.sh = %v, output: %s", err, log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	if got, want := string(commands), "npx:-y github:JuliusBrussee/caveman --only openclaw --force\n"; got != want {
+		t.Errorf("npx invocation = %q, want %q", got, want)
+	}
+}
+
+func TestShippedCavemanScriptSkipsOfflineOnlyForCompleteDurableInstall(t *testing.T) {
+	tests := []struct {
+		name         string
+		skill        string
+		skillDir     bool
+		missingSkill bool
+		soul         string
+		wantSkip     bool
+	}{
+		{name: "valid complete state", skill: "skill", soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n", wantSkip: true},
+		{name: "duplicate begin markers", skill: "skill", soul: "<!-- caveman-begin -->\n<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+		{name: "duplicate end markers", skill: "skill", soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n<!-- caveman-end -->\n"},
+		{name: "orphan begin marker", skill: "skill", soul: "<!-- caveman-begin -->\n"},
+		{name: "orphan end marker", skill: "skill", soul: "<!-- caveman-end -->\n"},
+		{name: "reversed markers", skill: "skill", soul: "<!-- caveman-end -->\n<!-- caveman-begin -->\n"},
+		{name: "missing skill", missingSkill: true, soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+		{name: "empty skill", skill: "", soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+		{name: "skill path is directory", skillDir: true, soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			skillPath := filepath.Join(workspace, "skills", "caveman", "SKILL.md")
+			if !tt.missingSkill {
+				if err := os.MkdirAll(filepath.Dir(skillPath), 0755); err != nil {
+					t.Fatalf("MkdirAll skill directory: %v", err)
+				}
+				if tt.skillDir {
+					if err := os.Mkdir(skillPath, 0755); err != nil {
+						t.Fatalf("Mkdir skill path: %v", err)
+					}
+				} else if err := os.WriteFile(skillPath, []byte(tt.skill), 0600); err != nil {
+					t.Fatalf("WriteFile skill: %v", err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(workspace, "SOUL.md"), []byte(tt.soul), 0600); err != nil {
+				t.Fatalf("WriteFile SOUL.md: %v", err)
+			}
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", t.TempDir(), map[string]string{
+				"HOME":               t.TempDir(),
+				"OPENCLAW_WORKSPACE": workspace,
+				"TMPDIR":             t.TempDir(),
+			})
+			if tt.wantSkip {
+				if err != nil {
+					t.Fatalf("caveman-install.sh = %v, output: %s", err, log)
+				}
+				if got, want := log, "==> Caveman is already installed in the OpenClaw workspace; skipping.\n"; got != want {
+					t.Errorf("caveman-install.sh output = %q, want %q", got, want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("caveman-install.sh returned nil for incomplete state; output: %s", log)
+			}
+			if got, want := log, "Error: curl is required to install Caveman.\n"; got != want {
+				t.Errorf("caveman-install.sh output = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestShippedCavemanScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/caveman-installer\"\n: > \"$path\"\nprintf 'mktemp:%s\\n' \"$path\" >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] && [ \"$2\" = \"https://raw.githubusercontent.com/JuliusBrussee/caveman/main/install.sh\" ] || exit 11\nprintf '#!/bin/sh\\nexit 43\\n'\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s:%s:%s\\n' \"$1\" \"$2\" \"$3\" >> \"$COMMAND_LOG\"\nexit 43\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nexit 0\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("caveman-install.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "Caveman installation complete") {
+		t.Errorf("caveman-install.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || !strings.HasPrefix(entries[0], "mktemp:") || entries[1] != "curl" || entries[2] != "bash:"+strings.TrimPrefix(entries[0], "mktemp:")+":--only:openclaw" {
+		t.Errorf("commands = %q, want official curl followed by bash --only openclaw for the same temporary installer", commands)
+		return
+	}
+	installerPath := strings.TrimPrefix(entries[0], "mktemp:")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+}
+
+func TestShippedCavemanScriptRepeatsWithFreshTemporaryInstallers(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\ncounter=\"$TMPDIR/caveman-counter\"\ncount=0\nif [ -f \"$counter\" ]; then\n    IFS= read -r count < \"$counter\"\nfi\ncount=$((count + 1))\nprintf '%s' \"$count\" > \"$counter\"\npath=\"$TMPDIR/caveman-installer-$count\"\n: > \"$path\"\nprintf 'mktemp:%s\\n' \"$path\" >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] && [ \"$2\" = \"https://raw.githubusercontent.com/JuliusBrussee/caveman/main/install.sh\" ] || exit 11\nprintf '#!/bin/sh\\nexit 0\\n'\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s:%s:%s\\n' \"$1\" \"$2\" \"$3\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nexit 0\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+	for range 2 {
+		log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+			"COMMAND_LOG": logFile,
+			"HOME":        t.TempDir(),
+			"TMPDIR":      tempDir,
+		})
+		if err != nil {
+			t.Fatalf("caveman-install.sh = %v, output: %s", err, log)
+		}
+	}
+
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 6 {
+		t.Fatalf("commands = %q, want two isolated mktemp/curl/sh installation sequences", commands)
+	}
+	for i := 0; i < len(entries); i += 3 {
+		if !strings.HasPrefix(entries[i], "mktemp:") || entries[i+1] != "curl" || entries[i+2] != "bash:"+strings.TrimPrefix(entries[i], "mktemp:")+":--only:openclaw" {
+			t.Errorf("sequence %d commands = %q, want official curl followed by bash --only openclaw", i/3, entries[i:i+3])
+			continue
+		}
+		installerPath := strings.TrimPrefix(entries[i], "mktemp:")
+		if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+			t.Errorf("temporary installer %q was not removed after repeat execution; stat error = %v", installerPath, err)
+		}
 	}
 }
 

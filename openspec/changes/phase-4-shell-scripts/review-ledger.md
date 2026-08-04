@@ -110,3 +110,25 @@ Both judges verified the dependency preflight, safe name handling, official asse
 | JD-T078-003 | judgment-day | `docs/specs.md:1332` | WARNING | info | SC-02 retains stale GitHub-release/`~/.local/bin/ghostty` wording that conflicts with the corrected community `ghostty-ubuntu` APT contract. | Judge B only; documentation consistency signal. |
 
 All warnings are informational under the severity floor and do not enter a fix/re-judge loop. Both judges verified no `curl | bash`, no invented official Ubuntu artifact, deterministic behavior, cleanup, failure propagation, and 606 passing full-suite tests. Terminal `JUDGMENT: APPROVED`.
+
+## Judgment Day — T-079 Apply Round 1
+
+**State:** ESCALATED — Judge A reported two CRITICAL Caveman contract defects; Judge B returned an empty ledger.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T079-001 | judgment-day | `assets/scripts/caveman-install.sh:11-27` | CRITICAL | open | The official installer requires Node 18+, `npx`, and an existing OpenClaw workspace for `--only openclaw`; the wrapper checks only `curl`, `mktemp`, and `bash`, while MyDots provides no OpenClaw installation step. A clean installation can therefore fail after preflight. | Suspect; Judge A inspected current upstream implementation, while Judge B reported no defect and did not evaluate upstream runtime prerequisites. |
+| JD-T079-002 | judgment-day | `internal/installer/modules/caveman.go`; `apply-progress.md:31` | CRITICAL | open | `IsInstalled` checks for a persistent `caveman` executable, but the `--only openclaw` path runs through temporary `npx` and installs workspace files rather than a durable binary. Repeat runs may redownload/reexecute and fail offline; the new repeat test uses fresh homes and a no-op payload. | Suspect; Judge A inspected current upstream installation effects, while Judge B accepted existing project evidence. |
+
+The findings are non-convergent but materially affect clean-install and repeat behavior. Explicit user triage is required before any scoped correction or completion commit.
+
+## Judgment Day — T-079 Apply Round 2
+
+**State:** APPROVED — both blind judges verified the final Caveman contract fixes.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T079-001 | judgment-day | `assets/scripts/caveman-install.sh` | CRITICAL | verified | The wrapper checks Node.js 18+, `npx`, and prior wrapper tools before mutation. It invokes the official installer with `--only openclaw --force`; upstream `cli/lib/openclaw.js` documents `--force` as the explicit safe mkdir path for a missing workspace. | Both judges verified clean-install prerequisites, safe workspace creation, failure propagation, and regression coverage. |
+| JD-T079-002 | judgment-day | `assets/scripts/caveman-install.sh`; `internal/installer/modules/caveman.go` | CRITICAL | verified | Installed state requires a non-empty regular `skills/caveman/SKILL.md` and exactly one ordered Caveman SOUL marker pair. Duplicate, orphan, reversed, missing, empty, and directory artifacts are incomplete, so upstream can repair them rather than an offline run skipping. | Both judges verified shell/Go parity, malformed-state rejection, complete-state offline skip, and 633 passing tests. |
+
+Focused fake-only runner and module tests pass, including strict duplicate/orphan marker and malformed-skill artifacts. T-079 reached terminal `JUDGMENT: APPROVED` with zero confirmed CRITICAL or real WARNING findings remaining.
