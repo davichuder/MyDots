@@ -3,7 +3,7 @@
 ## Delivery
 
 - Mode: single PR with maintainer-approved `size:exception`.
-- Work units completed: T-073 through T-078; this batch: JD-T079-001 and JD-T079-002 remediation only.
+- Work units completed: T-073 through T-079; this batch: T-079 completion-state reconciliation only.
 - Boundary: Caveman clean-install prerequisites, documented OpenClaw workspace initialization, durable installed-state detection, and deterministic repeat/offline proof; no T-080, final verification, or Phase 3 artifacts.
 
 ## Task Status
@@ -14,7 +14,7 @@
 - [x] 2.1 **T-076** — implementation, deterministic Go evidence, and mandatory ShellCheck pass.
 - [x] 3.1 **T-077** — audit, deterministic Go evidence, and mandatory ShellCheck pass.
 - [x] 3.2 **T-078** — audit, deterministic Go evidence, documentation correction, and mandatory ShellCheck pass.
-- [ ] 3.3 **T-079** — JD-T079-001/002 remediation applied; pending blind re-judgment.
+- [x] 3.3 **T-079** — JD-T079-001/002 remediation verified by both blind judges; implementation, deterministic Go evidence, and mandatory ShellCheck pass complete.
 - [ ] 4.1 **T-080**
 - [ ] 4.2 Final whole-phase verification
 
@@ -143,8 +143,8 @@
 - `internal/installer/{runner,modules}` tests: add fake-only clean prerequisite, Node version, npx, workspace initialization invocation, complete/partial durable-state, offline skip, failure-propagation, and no-false-success proof.
 - `assets/scripts/caveman-install.sh` and `internal/installer/modules/caveman.go`: treat the installation as complete only when `SKILL.md` is a non-empty regular file and `SOUL.md` has exactly one ordered Caveman marker pair; duplicates, orphans, reversal, missing files, empty files, and directories remain repairable.
 - `internal/installer/{runner,modules}` tests: prove duplicate/orphan marker pairs, empty or directory `SKILL.md`, and every incomplete state cannot take the offline skip, while the sole complete state does.
-- `docs/specs.md`, `docs/tasks.md`, and `openspec/changes/phase-4-shell-scripts/tasks.md`: align T-079 with the official OpenClaw artifact contract and keep completion pending blind re-judgment.
+- `docs/specs.md`, `docs/tasks.md`, and `openspec/changes/phase-4-shell-scripts/tasks.md`: align T-079 with the official OpenClaw artifact contract and mark completion after blind re-judgment approval.
 
 ## Completion
 
-T-073 through T-078 are complete. JD-T079-001 and the final allowed JD-T079-002 fix are applied pending blind re-judgment; T-080, final whole-phase verification, and Phase 3 remain untouched. This work unit is intentionally uncommitted; no commit, push, or PR action was taken.
+T-073 through T-079 are complete and approved. T-080, final whole-phase verification, and Phase 3 remain untouched. No push or PR action was taken.
