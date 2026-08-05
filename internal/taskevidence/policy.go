@@ -3,9 +3,29 @@ package taskevidence
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
+
+type atomicWriteFile interface {
+	Write([]byte) (int, error)
+	Sync() error
+	Close() error
+	Chmod(os.FileMode) error
+	Name() string
+}
+
+var markdownAtomicWriteOps = struct {
+	createTemp func(dir, pattern string) (atomicWriteFile, error)
+	rename     func(oldpath, newpath string) error
+}{
+	createTemp: func(dir, pattern string) (atomicWriteFile, error) {
+		return os.CreateTemp(dir, pattern)
+	},
+	rename: os.Rename,
+}
 
 var (
 	ErrIncompleteEvidence  = errors.New("task evidence is incomplete")
@@ -68,10 +88,54 @@ func MarkCompleteInMarkdown(path, taskID string, evidence Evidence) (MarkResult,
 
 	checkbox := strings.Index(lines[match], "- [")
 	lines[match] = lines[match][:checkbox+3] + "x" + lines[match][checkbox+4:]
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+	if err := replaceMarkdownAtomically(path, []byte(strings.Join(lines, "\n"))); err != nil {
 		return MarkResult{}, err
 	}
 	return MarkResult{Marked: true}, nil
+}
+
+func replaceMarkdownAtomically(path string, contents []byte) (err error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	temporary, err := markdownAtomicWriteOps.createTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	closed := false
+	renamed := false
+	defer func() {
+		if !closed {
+			_ = temporary.Close()
+		}
+		if !renamed {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+
+	if err := temporary.Chmod(info.Mode().Perm()); err != nil {
+		return err
+	}
+	if written, err := temporary.Write(contents); err != nil {
+		return err
+	} else if written != len(contents) {
+		return io.ErrShortWrite
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	closed = true
+	if err := markdownAtomicWriteOps.rename(temporaryPath, path); err != nil {
+		return err
+	}
+	renamed = true
+	return nil
 }
 
 func markdownTaskCheckboxState(line, taskID string) (byte, bool) {

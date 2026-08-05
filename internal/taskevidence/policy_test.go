@@ -118,3 +118,124 @@ func TestMarkCompleteInMarkdown(t *testing.T) {
 		})
 	}
 }
+
+func TestMarkCompleteInMarkdownAtomicWriteFailuresLeaveTrackerUnchanged(t *testing.T) {
+	const tracker = "# Tasks\n\n- [ ] **T-073** First task\n"
+	completeEvidence := Evidence{AuditPassed: true, FocusedVerificationPassed: true}
+
+	tests := []struct {
+		name         string
+		configureOps func(t *testing.T, tempNames *[]string)
+	}{
+		{
+			name: "write failure",
+			configureOps: func(t *testing.T, tempNames *[]string) {
+				markdownAtomicWriteOps.createTemp = func(dir, pattern string) (atomicWriteFile, error) {
+					file, err := os.CreateTemp(dir, pattern)
+					if err != nil {
+						return nil, err
+					}
+					*tempNames = append(*tempNames, file.Name())
+					return writeFailureFile{File: file}, nil
+				}
+			},
+		},
+		{
+			name: "rename failure",
+			configureOps: func(t *testing.T, tempNames *[]string) {
+				markdownAtomicWriteOps.createTemp = func(dir, pattern string) (atomicWriteFile, error) {
+					file, err := os.CreateTemp(dir, pattern)
+					if err == nil {
+						*tempNames = append(*tempNames, file.Name())
+					}
+					return file, err
+				}
+				markdownAtomicWriteOps.rename = func(_, _ string) error {
+					return errors.New("forced rename failure")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "tasks.md")
+			if err := os.WriteFile(path, []byte(tracker), 0o640); err != nil {
+				t.Fatal(err)
+			}
+
+			originalOps := markdownAtomicWriteOps
+			t.Cleanup(func() { markdownAtomicWriteOps = originalOps })
+			var tempNames []string
+			tt.configureOps(t, &tempNames)
+
+			if _, err := MarkCompleteInMarkdown(path, "T-073", completeEvidence); err == nil {
+				t.Fatal("MarkCompleteInMarkdown() error = nil, want forced write failure")
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tracker {
+				t.Errorf("tracker = %q, want original %q", got, tracker)
+			}
+			for _, tempName := range tempNames {
+				if _, err := os.Stat(tempName); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("temporary file %q remains after failure: %v", tempName, err)
+				}
+			}
+		})
+	}
+}
+
+func TestMarkCompleteInMarkdownPreservesTrackerPermissions(t *testing.T) {
+	const tracker = "# Tasks\n\n- [ ] **T-073** First task\n"
+	path := filepath.Join(t.TempDir(), "tasks.md")
+	if err := os.WriteFile(path, []byte(tracker), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	originalOps := markdownAtomicWriteOps
+	t.Cleanup(func() { markdownAtomicWriteOps = originalOps })
+	var chmodMode os.FileMode
+	markdownAtomicWriteOps.createTemp = func(dir, pattern string) (atomicWriteFile, error) {
+		file, err := os.CreateTemp(dir, pattern)
+		if err != nil {
+			return nil, err
+		}
+		return permissionRecordingFile{File: file, chmodMode: &chmodMode}, nil
+	}
+
+	if _, err := MarkCompleteInMarkdown(path, "T-073", Evidence{AuditPassed: true, FocusedVerificationPassed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if want := info.Mode().Perm(); chmodMode != want {
+		t.Errorf("temporary file permissions = %04o, want %04o", chmodMode, want)
+	}
+}
+
+type writeFailureFile struct {
+	*os.File
+}
+
+func (writeFailureFile) Write([]byte) (int, error) {
+	return 0, errors.New("forced write failure")
+}
+
+type permissionRecordingFile struct {
+	*os.File
+	chmodMode *os.FileMode
+}
+
+func (file permissionRecordingFile) Chmod(mode os.FileMode) error {
+	*file.chmodMode = mode
+	return file.File.Chmod(mode)
+}

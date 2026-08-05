@@ -185,3 +185,13 @@ The two-round remediation reached terminal `JUDGMENT: APPROVED`. Formal `sdd-ver
 | R3-001 | reliability | `internal/installer/runner/runner_test.go:1707-1725` | WARNING | info | Workflow path literals are asserted globally, so removing a path from one event while retaining it under the other could leave the contract test green. The current workflow correctly scopes both events; this is a non-blocking test-granularity signal. |
 
 The reviewer verified 650 Go tests, repository build, Go vet, exact WSL2 ShellCheck, task-evidence behavior, and archive consistency. The warning is informational under the severity floor.
+
+## Pre-Push Reliability Review — Round 1
+
+**State:** APPROVED — independent scoped re-review verified R3-002.
+
+| id | lens | location | severity | status | evidence |
+|---|---|---|---|---|---|
+| R3-002 | reliability | `internal/taskevidence/policy.go:91-138` | CRITICAL | verified | Same-directory temporary-file replacement preserves permissions, writes and syncs complete content, closes, then atomically renames. Injected write/rename failures preserve original bytes and remove temporary files; success changes exactly one intended task. Focused tests and `go build ./...` passed in independent scoped re-review. |
+
+The pre-push reliability gate is approved with no open BLOCKER or CRITICAL findings.
