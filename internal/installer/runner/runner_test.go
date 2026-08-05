@@ -1104,7 +1104,7 @@ func TestDockerLinuxScriptInstallsThroughOfficialAptInstallerAndCleansUp(t *test
 	aptSetup := strings.Index(log, "apt-repository-setup")
 	aptInstall := strings.Index(log, "apt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin")
 	completion := strings.Index(log, "Docker installation complete")
-	if !(aptSetup < aptInstall && aptInstall < completion) {
+	if aptSetup >= aptInstall || aptInstall >= completion {
 		t.Errorf("docker-linux.sh output = %q, want apt setup before package install and completion", log)
 	}
 	installerPath := filepath.Join(tempDir, "docker-installer")

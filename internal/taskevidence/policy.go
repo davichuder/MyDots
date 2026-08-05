@@ -1,3 +1,4 @@
+// Package taskevidence validates and records evidence for tracked task completion.
 package taskevidence
 
 import (
