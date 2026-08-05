@@ -195,3 +195,16 @@ The reviewer verified 650 Go tests, repository build, Go vet, exact WSL2 ShellCh
 | R3-002 | reliability | `internal/taskevidence/policy.go:91-138` | CRITICAL | verified | Same-directory temporary-file replacement preserves permissions, writes and syncs complete content, closes, then atomically renames. Injected write/rename failures preserve original bytes and remove temporary files; success changes exactly one intended task. Focused tests and `go build ./...` passed in independent scoped re-review. |
 
 The pre-push reliability gate is approved with no open BLOCKER or CRITICAL findings.
+
+## Pre-PR Full 4R Review
+
+**State:** APPROVED — no BLOCKER or CRITICAL findings; informational warnings do not block.
+
+| id | lens | location | severity | status | evidence |
+|---|---|---|---|---|---|
+| R4-001 | resilience | `assets/scripts/omz-install.sh:11-14` | WARNING | info | Any existing `~/.oh-my-zsh` directory is treated as installed, so an upstream partial directory could make a retry skip. This remains a non-blocking first-pass recovery signal. |
+| R2-001 | readability | `internal/installer/runner/runner_test.go:627-1077` | WARNING | info | Repeated installer-test scaffolding across Homebrew, Oh My Zsh, and SDKMAN materially increases maintenance and review burden. |
+| R2-002 | readability | `openspec/changes/archive/2026-08-04-phase-4-shell-scripts/apply-progress.md:52` | WARNING | info | A historical remediation note says the verify report remains FAIL while the final report is PASS WITH WARNINGS, creating an ambiguous status signal without explicit historical framing. |
+| R2-003 | readability | `assets/scripts/docker-linux.sh:16` | WARNING | info | `getent` is preflighted and faked in tests but never used by the Docker group algorithm, adding an unnecessary runtime rejection condition. |
+
+Risk and reliability lenses returned empty ledgers. All warnings are informational under the severity floor and were not fixed or re-reviewed.
