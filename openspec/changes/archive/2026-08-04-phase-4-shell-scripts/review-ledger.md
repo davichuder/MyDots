@@ -132,3 +132,56 @@ The findings are non-convergent but materially affect clean-install and repeat b
 | JD-T079-002 | judgment-day | `assets/scripts/caveman-install.sh`; `internal/installer/modules/caveman.go` | CRITICAL | verified | Installed state requires a non-empty regular `skills/caveman/SKILL.md` and exactly one ordered Caveman SOUL marker pair. Duplicate, orphan, reversed, missing, empty, and directory artifacts are incomplete, so upstream can repair them rather than an offline run skipping. | Both judges verified shell/Go parity, malformed-state rejection, complete-state offline skip, and 633 passing tests. |
 
 Focused fake-only runner and module tests pass, including strict duplicate/orphan marker and malformed-skill artifacts. T-079 reached terminal `JUDGMENT: APPROVED` with zero confirmed CRITICAL or real WARNING findings remaining.
+
+## Judgment Day — T-080 Apply Round 1
+
+**State:** APPROVED — no converged BLOCKER or CRITICAL findings.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-T080-001 | judgment-day | `internal/installer/runner/runner_test.go:1707-1725` | WARNING | info | The contract test finds each required path literal anywhere in the YAML rather than proving it appears independently under both `push` and `pull_request`; removing one event's script path could leave the test green. | Judge A only; non-blocking coverage signal. |
+| JD-T080-002 | judgment-day | `openspec/changes/phase-4-shell-scripts/apply-progress.md:32,72-73` | WARNING | info | The evidence counts the parent Go test as a ninth passing node and describes the dedicated workflow as absent even though the broader existing CI workflow already contained a ShellCheck step. | Judge A only; historical evidence-label inaccuracy. |
+| JD-T080-003 | judgment-day | `openspec/changes/phase-4-shell-scripts/apply-progress.md:159` | WARNING | info | The progress tracker called T-080 approved before this blind review completed. | Judge A only; timing signal resolved by this terminal review. |
+
+Judge B returned an empty ledger. Both judges verified the pinned checksum, exact fail-closed ShellCheck command, focused workflow contract, full Go suite, exact WSL2 ShellCheck gate, tracker completion, and preservation of the pending final whole-phase verification task. Warnings remain informational under the severity floor and do not enter a fix/re-judge loop. Terminal `JUDGMENT: APPROVED`.
+
+## Judgment Day — Final Whole-Phase Verification Round 1
+
+**State:** APPROVED — no BLOCKER or CRITICAL findings.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-FV-001 | judgment-day | `openspec/changes/phase-4-shell-scripts/apply-progress.md:46`; `.github/workflows/shellcheck.yml` | WARNING | info | The evidence describes `git diff --check` as covering the complete working tree, but Git excludes the new untracked workflow from that command. Both judges inspected the workflow and found no whitespace defect. | Both judges confirmed the evidence-label limitation; non-blocking. |
+
+Both judges independently reran the six-command final matrix: 119 runner tests, 329 module tests, 642 full-suite tests, exact WSL2 ShellCheck, gofmt, and tracked diff checks all passed. They confirmed consistent T-073–T-080 and 4.2 task markers, no hidden failures, and no Phase 3 changes. The warning is informational and does not enter a fix/re-judge loop. Terminal `JUDGMENT: APPROVED`.
+
+## Judgment Day — Formal Verification Blocker Remediation Round 1
+
+**State:** ESCALATED — build blocker verified fixed; evidence-enforcement blocker remains disputed.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-VRFIX-001 | judgment-day | `main.go:1-3` | CRITICAL | verified | The root package now has the minimal `func main()` required for `go build ./...`; both judges reproduced a successful build and confirmed no deferred runtime behavior was invented. | Both judges verified. |
+| JD-VRFIX-002 | judgment-day | `internal/taskevidence/policy.go:11-16`; `internal/taskevidence/policy_test.go:5-39` | CRITICAL | open | The policy deterministically rejects incomplete evidence, but Judge A found no production tracker consumer proving a real checkbox cannot be marked; Judge B accepted the executable policy contract as satisfying the scenario. | Contradiction; requires explicit triage before a second fix round. |
+
+The formal `verify-report.md` remains historical FAIL pending re-verification. No unrelated warnings were reviewed or fixed.
+
+## Judgment Day — Formal Verification Blocker Remediation Round 2
+
+**State:** APPROVED — both blind judges verified the final evidence-enforcement integration.
+
+| id | lens | location | severity | status | evidence | convergence |
+|---|---|---|---|---|---|---|
+| JD-VRFIX-002 | judgment-day | `internal/taskevidence/policy.go`; `internal/taskevidence/policy_test.go` | CRITICAL | verified | `MarkCompleteInMarkdown` consumes `CanMarkComplete` before filesystem access, updates exactly one intended unchecked Markdown task only with complete evidence, and fails without mutation for incomplete, missing, already-complete, ambiguous, or malformed targets. Tests use real temporary tracker files and byte-level assertions. | Both judges verified focused tests, the 650-test full suite, and successful repository build. |
+
+The two-round remediation reached terminal `JUDGMENT: APPROVED`. Formal `sdd-verify` must now refresh the historical FAIL report.
+
+## Pre-Commit Reliability Review
+
+**State:** APPROVED — no BLOCKER or CRITICAL findings.
+
+| id | lens | location | severity | status | evidence |
+|---|---|---|---|---|---|
+| R3-001 | reliability | `internal/installer/runner/runner_test.go:1707-1725` | WARNING | info | Workflow path literals are asserted globally, so removing a path from one event while retaining it under the other could leave the contract test green. The current workflow correctly scopes both events; this is a non-blocking test-granularity signal. |
+
+The reviewer verified 650 Go tests, repository build, Go vet, exact WSL2 ShellCheck, task-evidence behavior, and archive consistency. The warning is informational under the severity floor.

@@ -559,7 +559,8 @@ All scripts must pass `shellcheck --shell=sh` before any commit.
 - [x] **T-077** Write and verify `assets/scripts/font-linux.sh` — reads `$FONT_NAME` env var, downloads zip from nerdfonts GitHub releases, extracts to `~/.local/share/fonts/`, runs `fc-cache -fv`. Note: `unzip` must be available; script must check and fail clearly if missing.
 - [x] **T-078** Write and verify `assets/scripts/ghostty-linux.sh` — downloads the community `ghostty-ubuntu` installer to a temporary file, executes it with `bash`, cleans it up, and never uses `curl \| bash`
 - [x] **T-079** Write and verify `assets/scripts/caveman-install.sh` — wrapper for the official Caveman installer with verified OpenClaw integration and idempotence
-- [ ] **T-080** Add `shellcheck` CI step that fails the build if any script has warnings
+- [x] **T-080** Add `shellcheck` CI step that fails the build if any script has warnings
+- [x] **4.2** Final whole-phase verification for T-073 through T-080 — deterministic runner/module suites, full Go suite, exact WSL2 ShellCheck gate, and formatting/diff checks passed on 2026-08-04
 
 ---
 

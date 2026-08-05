@@ -1693,6 +1693,39 @@ func TestGhosttyDocumentationUsesTheCommunityUbuntuInstaller(t *testing.T) {
 	}
 }
 
+func TestShellCheckWorkflowEnforcesTheShippedScriptGate(t *testing.T) {
+	repoRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("Abs repository root: %v", err)
+	}
+
+	workflow, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "shellcheck.yml"))
+	if err != nil {
+		t.Fatalf("ReadFile ShellCheck workflow: %v", err)
+	}
+
+	content := string(workflow)
+	for _, requirement := range []struct {
+		name string
+		want string
+	}{
+		{name: "Ubuntu 24.04 runner", want: "runs-on: ubuntu-24.04"},
+		{name: "push trigger", want: "push:"},
+		{name: "pull request trigger", want: "pull_request:"},
+		{name: "script path trigger", want: "- 'assets/scripts/**'"},
+		{name: "workflow path trigger", want: "- '.github/workflows/shellcheck.yml'"},
+		{name: "pinned ShellCheck release", want: "v0.10.0"},
+		{name: "ShellCheck SHA-256", want: "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87"},
+		{name: "exact fail-closed command", want: "shellcheck --shell=sh assets/scripts/*.sh"},
+	} {
+		t.Run(requirement.name, func(t *testing.T) {
+			if !strings.Contains(content, requirement.want) {
+				t.Errorf("ShellCheck workflow must contain %q", requirement.want)
+			}
+		})
+	}
+}
+
 func TestShippedFontLinuxScriptInstallsAndRefreshesFontCache(t *testing.T) {
 	binDir := t.TempDir()
 	fontHome := t.TempDir()

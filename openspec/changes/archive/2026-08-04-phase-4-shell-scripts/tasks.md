@@ -43,5 +43,5 @@ Chain strategy: pending
 
 ## Phase 4: CI and Whole-Phase Verification
 
-- [ ] 4.1 **T-080** RED-audit the absent gate, create `.github/workflows/shellcheck.yml` with relevant `push`/`pull_request` paths, pinned SHA-verified ShellCheck v0.10.0 provisioning, and exact fail-closed command; validate workflow contract, ShellCheck, then only T-080 in its atomic WHY commit.
-- [ ] 4.2 After all focused units, separately verify every T-073–T-080 scenario deterministically, rerun `shellcheck --shell=sh assets/scripts/*.sh`, and confirm each checkbox has task-specific evidence; do not mark incomplete tasks or open a PR.
+- [x] 4.1 **T-080** RED-audit the absent gate, create `.github/workflows/shellcheck.yml` with relevant `push`/`pull_request` paths, pinned SHA-verified ShellCheck v0.10.0 provisioning, and exact fail-closed command; validate workflow contract and ShellCheck passed. No commit created per execution instruction.
+- [x] 4.2 After all focused units, separately verify every T-073–T-080 scenario deterministically, rerun `shellcheck --shell=sh assets/scripts/*.sh`, and confirm each checkbox has task-specific evidence; do not mark incomplete tasks or open a PR. Final matrix passed on 2026-08-04.

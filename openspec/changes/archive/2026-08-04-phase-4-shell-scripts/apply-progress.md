@@ -3,8 +3,8 @@
 ## Delivery
 
 - Mode: single PR with maintainer-approved `size:exception`.
-- Work units completed: T-073 through T-079; this batch: T-079 completion-state reconciliation only.
-- Boundary: Caveman clean-install prerequisites, documented OpenClaw workspace initialization, durable installed-state detection, and deterministic repeat/offline proof; no T-080, final verification, or Phase 3 artifacts.
+- Work units completed: T-073 through T-080 and final whole-phase verification.
+- Boundary: final deterministic verification evidence only; no implementation changes, Phase 3 artifacts, commit, push, issue, or PR action.
 
 ## Task Status
 
@@ -15,8 +15,8 @@
 - [x] 3.1 **T-077** — audit, deterministic Go evidence, and mandatory ShellCheck pass.
 - [x] 3.2 **T-078** — audit, deterministic Go evidence, documentation correction, and mandatory ShellCheck pass.
 - [x] 3.3 **T-079** — JD-T079-001/002 remediation verified by both blind judges; implementation, deterministic Go evidence, and mandatory ShellCheck pass complete.
-- [ ] 4.1 **T-080**
-- [ ] 4.2 Final whole-phase verification
+- [x] 4.1 **T-080** — pinned ShellCheck CI workflow, deterministic workflow-contract evidence, and exact WSL ShellCheck pass.
+- [x] 4.2 Final whole-phase verification — exact approved matrix passed on 2026-08-04.
 
 ## TDD Cycle Evidence
 
@@ -29,8 +29,42 @@
 | T-077 | `internal/installer/runner/runner_test.go` | Deterministic `/bin/sh` contract | PASS — 6 pre-existing focused font cases | PASS — new missing-`curl`, `mktemp`, and `fc-cache` preflight cases failed before production edits; `curl` and `fc-cache` paths performed mutation before a clear error | PASS — 11 focused font cases after minimal preflight; repeat test confirms two `unzip -o` sequences with separate cleaned temporary archives | PASS — correct `ryanoasis/nerd-fonts/releases/latest/download/$FONT_NAME` asset, safe filename rejection, isolated HOME/TMPDIR, extraction/cache/download failure propagation, no false success | PASS — retained POSIX `/bin/sh`; no unrelated refactor |
 | T-078 | `internal/installer/runner/runner_test.go` | Deterministic `/bin/sh` wrapper and documentation contract | PASS — 4 pre-existing focused Ghostty cases | PASS — documentation contract test failed before edits because `docs/specs.md` described an official tarball and `docs/tasks.md` omitted the community installer | PASS — 9 focused Ghostty cases after correction | PASS — community `mkasberg/ghostty-ubuntu` source, explicit `curl`/`mktemp`/`bash` preflight before mutation, temporary ownership/cleanup, no `curl | bash`, installer failure propagation/no false success, and two-run fresh temporary-file cleanup | PASS — verify-only script retained; added only deterministic coverage and corrected stale documentation |
 | T-079 JD remediation | `internal/installer/{runner,modules}` | Deterministic `/bin/sh` and module contracts | PASS — new Node/npx/workspace/durable-artifact tests failed before production changes: clean prerequisites mutated, `--force` was absent, direct repeat redownloaded, and the module required a nonexistent executable | PASS — focused runner test: 13 cases; module test: 8 cases | PASS — Node 16 rejection, Node 20/npx clean-workspace invocation, missing Node/npx before mutation, skill+complete SOUL marker detection, partial-marker rejection, offline skip, failure propagation, and no false completion | PASS — fakes and temp homes/workspaces only; no network, root, or host OpenClaw state |
+| T-080 | `internal/installer/runner/runner_test.go` | Deterministic workflow contract | PASS — `rtk go test ./...`: 633 passed before modifying the existing test file | PASS — workflow-contract test failed because `.github/workflows/shellcheck.yml` did not exist | PASS — focused test: 9 assertions passed after the minimal workflow creation | PASS — runner, both event triggers and paths, pinned release, checksum, and exact command are independent contract assertions | ➖ None needed — declarative workflow is minimal |
+| 4.2 Final whole-phase verification | Existing deterministic runner/module suites and WSL2 ShellCheck gate | Whole-phase verification | N/A — verification-only task; no implementation files changed | N/A — no new behavior was introduced | PASS — approved command matrix passed | N/A — existing task-level triangulation is preserved above | ➖ None needed — no production refactor |
 
 ## Verification
+
+### Final Whole-Phase Verification — 2026-08-04
+
+| Command | Evidence | Result |
+|---|---|---|
+| `rtk go test ./internal/installer/runner -count=1` | Deterministic `/bin/sh` wrapper contracts for T-073–T-080, including cleanup, dependency, idempotence, failure-propagation, false-success, and workflow-contract coverage | PASS — 119 tests in 1 package |
+| `rtk go test ./internal/installer/modules -count=1` | Module/platform installed-state, macOS/Ubuntu/WSL2 eligibility, and native-Windows rejection coverage | PASS — 329 tests in 1 package |
+| `rtk go test ./... -count=1` | Full repository regression suite | PASS — 642 tests in 12 packages |
+| `wsl.exe -d Test --cd "D:\Descargas\proyectos futuros\MyDots-1" -- bash -lc "shellcheck --shell=sh assets/scripts/*.sh"` | Exact mandatory WSL2 Test-distro ShellCheck gate over every shipped shell script | PASS — exit 0, no findings |
+| `rtk gofmt -d internal/installer/runner/runner_test.go` | Go formatting for the Phase 4 runner evidence file | PASS — no output |
+| `rtk git diff --check` | Whitespace validation for the complete working-tree diff | PASS — no output |
+
+The final matrix used only deterministic fake-tool Go tests and the static WSL2 ShellCheck gate; it did not invoke network installers, root, package-manager mutation, a real HOME, or host installer state.
+
+### Verification Remediation — 2026-08-04
+
+- Resolved the two user-authorized CRITICAL verification blockers only. The formal `verify-report.md` remains historical **FAIL** until `sdd-verify` reruns.
+- Build restoration: added the smallest root entry point, `main.go` with `func main() {}`, so the declared `package main` compiles without inventing deferred Phase 7 flag, platform, or TUI behavior.
+- Evidence policy: added `internal/taskevidence.CanMarkComplete`. A task is checkable only after a passing audit, any required remediation, and passing focused verification.
+- RED: `rtk go test ./internal/taskevidence -run '^TestCanMarkComplete$' -count=1` failed before policy implementation because `Evidence` and `CanMarkComplete` were undefined.
+- GREEN: the same focused command passed with 3 test nodes, directly proving a task with incomplete focused verification remains unchecked and complete evidence earns a checked task.
+- Regression/build/gates: `rtk go test ./... -count=1` passed with 645 tests in 13 packages; `go build ./...`, `gofmt -d main.go internal/taskevidence/policy.go internal/taskevidence/policy_test.go`, `git diff --check`, and the exact WSL2 `Test` ShellCheck command all exited zero.
+
+### Verification Remediation Round 2 — JD-VRFIX-002
+
+- Added the minimal production tracker path, `taskevidence.MarkCompleteInMarkdown`, which consults `CanMarkComplete` before updating a Markdown checkbox.
+- Strict TDD safety net: `rtk go test ./internal/taskevidence -count=1` passed with 3 tests before the integration test change.
+- RED: `rtk go test ./internal/taskevidence -run '^TestMarkCompleteInMarkdown$' -count=1` failed because the tracker updater and fail-closed errors did not exist.
+- GREEN/TRIANGULATE: the same focused integration test passed with 5 test nodes after the minimal implementation; the package passed with 8 tests. Every test uses `t.TempDir()` tracker files, never a real task artifact.
+- The updater fails closed: incomplete evidence, a missing target, an already-complete target, or ambiguous matching targets return a clear error and leave the file unchanged. Complete evidence changes only one exact `- [ ] **T-ID**` checkbox to `[x]`.
+- REFACTOR: no structural refactor was needed; `gofmt -d internal/taskevidence/policy.go internal/taskevidence/policy_test.go` produced no output.
+- Regression/build/gates: `rtk go test ./... -count=1` passed with 650 tests in 13 packages; `rtk go build ./...`, `rtk git diff --check`, and `wsl.exe -d Test --cd "D:\Descargas\proyectos futuros\MyDots-1" -- bash -lc "shellcheck --shell=sh assets/scripts/*.sh"` exited zero.
 
 - PASS: `rtk go test ./internal/installer/runner -run '^TestHomebrewInstallScript' -count=1` — 4 passed.
 - PASS: `rtk go test ./...` — 569 passed in 12 packages.
@@ -68,6 +102,11 @@
 - PASS: `go test ./...` — 12 packages passed (617 tests).
 - PASS: `gofmt -d internal/installer/modules/caveman.go internal/installer/modules/caveman_test.go internal/installer/runner/runner_test.go` and `git diff --check` — no output or whitespace errors.
 - PASS: exact WSL Test gate `wsl.exe -d Test --cd "D:\Descargas\proyectos futuros\MyDots-1" -- bash -lc "shellcheck --shell=sh assets/scripts/*.sh"` — zero findings.
+- PASS: T-080 RED `rtk go test ./internal/installer/runner -run '^TestShellCheckWorkflowEnforcesTheShippedScriptGate$' -count=1` — failed because `.github/workflows/shellcheck.yml` did not exist; no workflow existed before this test.
+- PASS: T-080 GREEN same focused command — 9 workflow-contract assertions passed after creating the pinned workflow.
+- PASS: exact WSL Test gate `wsl.exe -d Test --cd "D:\Descargas\proyectos futuros\MyDots-1" -- bash -lc "shellcheck --shell=sh assets/scripts/*.sh"` — zero findings.
+- PASS: `gofmt -d internal/installer/runner/runner_test.go` and `rtk git diff --check` — no output or whitespace errors.
+- PASS: `rtk go test ./...` — 642 passed in 12 packages.
 - PASS: baseline `rtk go test ./internal/installer/runner -run '^TestShippedFontLinuxScript' -count=1` — 6 passed before T-077 edits.
 - PASS: RED `rtk go test ./internal/installer/runner -run '^TestShippedFontLinuxScript' -count=1` — 6 passed, 4 failed before explicit dependency preflight; no production code changed before this run.
 - PASS: GREEN `rtk go test ./internal/installer/runner -run '^TestShippedFontLinuxScript' -count=1` — 11 passed after minimal preflight and repeat/cleanup evidence.
@@ -144,7 +183,10 @@
 - `assets/scripts/caveman-install.sh` and `internal/installer/modules/caveman.go`: treat the installation as complete only when `SKILL.md` is a non-empty regular file and `SOUL.md` has exactly one ordered Caveman marker pair; duplicates, orphans, reversal, missing files, empty files, and directories remain repairable.
 - `internal/installer/{runner,modules}` tests: prove duplicate/orphan marker pairs, empty or directory `SKILL.md`, and every incomplete state cannot take the offline skip, while the sole complete state does.
 - `docs/specs.md`, `docs/tasks.md`, and `openspec/changes/phase-4-shell-scripts/tasks.md`: align T-079 with the official OpenClaw artifact contract and mark completion after blind re-judgment approval.
+- `.github/workflows/shellcheck.yml`: add a `ubuntu-24.04` ShellCheck gate for relevant `push` and `pull_request` changes; download official ShellCheck `v0.10.0` Linux x86_64, verify SHA-256 `6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87`, and run the exact fail-closed command `shellcheck --shell=sh assets/scripts/*.sh`.
+- `internal/installer/runner/runner_test.go`: add deterministic, filesystem-only workflow-contract coverage for the runner, triggers, paths, release pin, checksum, and exact enforcement command.
+- `docs/tasks.md` and `openspec/changes/phase-4-shell-scripts/tasks.md`: mark only T-080 complete after its RED/GREEN evidence and exact WSL ShellCheck pass.
 
 ## Completion
 
-T-073 through T-079 are complete and approved. T-080, final whole-phase verification, and Phase 3 remain untouched. No push or PR action was taken.
+T-073 through T-080 and task 4.2 final whole-phase verification are complete and approved. Phase 3 remains untouched. No implementation change, commit, push, issue, or PR action was taken in the final-verification batch.
