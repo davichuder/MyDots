@@ -572,7 +572,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-081** Write failing tests for `LogPane`:
+- [x] **T-081** Write failing tests for `LogPane`:
   - Appending a line increases content by exactly one line
   - After 200 lines, oldest lines are dropped (ring buffer); content length stays at 200
   - Appending empty string is a no-op (content unchanged)
@@ -580,7 +580,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-082** Implement `LogPane` with `LogPaneMaxLines = 200` constant
+- [x] **T-082** Implement `LogPane` with `LogPaneMaxLines = 200` constant
 
 **[RED]**
 
