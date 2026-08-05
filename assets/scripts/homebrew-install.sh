@@ -8,6 +8,15 @@
 
 set -eu
 
+if ! command -v curl >/dev/null 2>&1; then
+    echo "Error: curl is required to install Homebrew." >&2
+    exit 1
+fi
+if ! command -v mktemp >/dev/null 2>&1; then
+    echo "Error: mktemp is required to install Homebrew." >&2
+    exit 1
+fi
+
 echo "==> Downloading Homebrew install script..."
 install_script=$(mktemp)
 trap 'rm -f "$install_script"' 0 1 2 15

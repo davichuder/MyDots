@@ -532,8 +532,9 @@ func TestScript(t *testing.T) {
 
 func TestShippedInstallerScriptsRunUnderPOSIXSh(t *testing.T) {
 	binDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
 	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '%s\\n' 'echo downloaded-installer-ran'\n")
-	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\neval \"$(cat \"$1\")\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n    printf 'GNU bash, version 5.2.0\\n'\n    exit 0\nfi\neval \"$(cat \"$1\")\"\n")
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	scripts := []string{
@@ -559,6 +560,7 @@ func TestShippedInstallerScriptsRunUnderPOSIXSh(t *testing.T) {
 
 func TestShippedInstallerScriptsReturnDownloadFailure(t *testing.T) {
 	binDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
 	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")
 
 	scripts := []string{
@@ -579,9 +581,637 @@ func TestShippedInstallerScriptsReturnDownloadFailure(t *testing.T) {
 	}
 }
 
+func TestHomebrewInstallScriptValidatesCurlBeforeCreatingTemporaryInstaller(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\nprintf '%s/mydots-homebrew-installer' \"$TMPDIR\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/homebrew-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("homebrew-install.sh returned nil without curl")
+	}
+	if got, want := log, "Error: curl is required to install Homebrew.\n"; got != want {
+		t.Errorf("homebrew-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("mktemp ran without curl; stat error = %v", err)
+	}
+}
+
+func TestHomebrewInstallScriptValidatesMktempBeforeDownloading(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/homebrew-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("homebrew-install.sh returned nil without mktemp")
+	}
+	if got, want := log, "Error: mktemp is required to install Homebrew.\n"; got != want {
+		t.Errorf("homebrew-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("curl ran without mktemp; stat error = %v", err)
+	}
+}
+
+func TestHomebrewInstallScriptRunsDownloadedInstallerAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/homebrew-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf 'printf upstream-installer-ran\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/homebrew-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err != nil {
+		t.Fatalf("homebrew-install.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "upstream-installer-ran") || !strings.Contains(log, "Homebrew installation complete") {
+		t.Errorf("homebrew-install.sh output = %q, want installer and completion output", log)
+	}
+	installerPath := filepath.Join(tempDir, "homebrew-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 2 || entries[0] != "curl:https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh" || !strings.HasPrefix(entries[1], "rm:") {
+		t.Errorf("commands = %q, want curl followed by cleanup", commands)
+	}
+}
+
+func TestHomebrewInstallScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/homebrew-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'exit 43\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/homebrew-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("homebrew-install.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "Homebrew installation complete") {
+		t.Errorf("homebrew-install.sh output = %q, must not report success", log)
+	}
+	installerPath := filepath.Join(tempDir, "homebrew-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 2 || entries[0] != "curl" || !strings.HasPrefix(entries[1], "rm:") {
+		t.Errorf("commands = %q, want failed download followed by cleanup", commands)
+	}
+}
+
+func TestOhMyZshInstallScriptRunsOfficialInstallerUnattendedAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/omz-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf 'echo upstream-installer-ran\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh:%s:%s:%s\\n' \"$RUNZSH\" \"$CHSH\" \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err != nil {
+		t.Fatalf("omz-install.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "upstream-installer-ran") || !strings.Contains(log, "Oh My Zsh installation complete") {
+		t.Errorf("omz-install.sh output = %q, want upstream installer and completion output", log)
+	}
+	installerPath := filepath.Join(tempDir, "omz-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || entries[0] != "curl:https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh" || !strings.HasPrefix(entries[1], "sh:no:no:") || !strings.HasPrefix(entries[2], "rm:") {
+		t.Errorf("commands = %q, want official curl, unattended sh, and cleanup", commands)
+	}
+}
+
+func TestOhMyZshInstallScriptSkipsWhenAlreadyInstalled(t *testing.T) {
+	binDir := t.TempDir()
+	homeDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	if err := os.Mkdir(filepath.Join(homeDir, ".oh-my-zsh"), 0755); err != nil {
+		t.Fatalf("Mkdir existing Oh My Zsh directory: %v", err)
+	}
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh\\n' >> \"$COMMAND_LOG\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        homeDir,
+		"TMPDIR":      t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("omz-install.sh = %v, output: %s", err, log)
+	}
+	if got, want := log, "==> Oh My Zsh is already installed; skipping.\n"; got != want {
+		t.Errorf("omz-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("installer command ran for existing Oh My Zsh directory; stat error = %v", err)
+	}
+}
+
+func TestOhMyZshInstallScriptValidatesDependenciesBeforeCreatingTemporaryInstaller(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh\\n' >> \"$COMMAND_LOG\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("omz-install.sh returned nil without curl")
+	}
+	if got, want := log, "Error: curl is required to install Oh My Zsh.\n"; got != want {
+		t.Errorf("omz-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("mktemp or sh ran without curl; stat error = %v", err)
+	}
+}
+
+func TestOhMyZshInstallScriptValidatesRemainingDependenciesBeforeCreatingTemporaryInstaller(t *testing.T) {
+	tests := []struct {
+		name         string
+		installStubs func(t *testing.T, binDir, logFile string)
+		wantOutput   string
+	}{
+		{
+			name: "missing mktemp",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: mktemp is required to install Oh My Zsh.\n",
+		},
+		{
+			name: "missing sh",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: sh is required to install Oh My Zsh.\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			tt.installStubs(t, binDir, logFile)
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+				"COMMAND_LOG": logFile,
+				"HOME":        t.TempDir(),
+				"TMPDIR":      t.TempDir(),
+			})
+			if err == nil {
+				t.Fatalf("omz-install.sh returned nil when %s", tt.name)
+			}
+			if log != tt.wantOutput {
+				t.Errorf("omz-install.sh output = %q, want %q", log, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer command ran when %s; stat error = %v", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestOhMyZshInstallScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/omz-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'exit 43\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh:%s:%s\\n' \"$RUNZSH\" \"$CHSH\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/omz-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("omz-install.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "Oh My Zsh installation complete") {
+		t.Errorf("omz-install.sh output = %q, must not report success", log)
+	}
+	installerPath := filepath.Join(tempDir, "omz-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || entries[0] != "curl" || entries[1] != "sh:no:no" || !strings.HasPrefix(entries[2], "rm:") {
+		t.Errorf("commands = %q, want failed installer execution followed by cleanup", commands)
+	}
+}
+
+func TestSdkmanInstallScriptRunsOfficialInstallerUnattendedAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	homeDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/sdkman-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://get.sdkman.io\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf 'echo upstream-installer-ran\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n    printf 'GNU bash, version 5.2.0\\n'\n    exit 0\nfi\nprintf 'bash:%s:%s\\n' \"$SDKMAN_DIR\" \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        homeDir,
+		"TMPDIR":      tempDir,
+	})
+	if err != nil {
+		t.Fatalf("sdkman-install.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "upstream-installer-ran") || !strings.Contains(log, "SDKMAN installation complete") {
+		t.Errorf("sdkman-install.sh output = %q, want installer and completion output", log)
+	}
+	installerPath := filepath.Join(tempDir, "sdkman-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || entries[0] != "curl:https://get.sdkman.io" || !strings.HasPrefix(entries[1], "bash:") || !strings.Contains(entries[1], ".sdkman:") || !strings.HasPrefix(entries[2], "rm:") {
+		t.Errorf("commands = %q, want official curl, SDKMAN_DIR bash, and cleanup", commands)
+	}
+}
+
+func TestSdkmanInstallScriptSkipsWhenAlreadyInstalled(t *testing.T) {
+	binDir := t.TempDir()
+	homeDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	initFile := filepath.Join(homeDir, ".sdkman", "bin", "sdkman-init.sh")
+	if err := os.MkdirAll(filepath.Dir(initFile), 0755); err != nil {
+		t.Fatalf("MkdirAll SDKMAN directory: %v", err)
+	}
+	if err := os.WriteFile(initFile, []byte("# SDKMAN"), 0600); err != nil {
+		t.Fatalf("WriteFile SDKMAN init file: %v", err)
+	}
+	for _, command := range []string{"curl", "mktemp", "bash"} {
+		writeScriptStub(t, filepath.Join(binDir, command), "#!/bin/sh\nprintf '"+command+"\\n' >> \"$COMMAND_LOG\"\n")
+	}
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        homeDir,
+		"TMPDIR":      t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("sdkman-install.sh = %v, output: %s", err, log)
+	}
+	if got, want := log, "==> SDKMAN is already installed; skipping.\n"; got != want {
+		t.Errorf("sdkman-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("installer command ran for existing SDKMAN init file; stat error = %v", err)
+	}
+}
+
+func TestSdkmanInstallScriptValidatesDependenciesBeforeCreatingTemporaryInstaller(t *testing.T) {
+	tests := []struct {
+		name         string
+		installStubs func(t *testing.T, binDir, logFile string)
+		wantOutput   string
+	}{
+		{
+			name: "missing curl",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: curl is required to install SDKMAN.\n",
+		},
+		{
+			name: "missing mktemp",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: mktemp is required to install SDKMAN.\n",
+		},
+		{
+			name: "missing bash",
+			installStubs: func(t *testing.T, binDir, logFile string) {
+				writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+				writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n")
+			},
+			wantOutput: "Error: bash is required to install SDKMAN.\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			tt.installStubs(t, binDir, logFile)
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+				"COMMAND_LOG": logFile,
+				"HOME":        t.TempDir(),
+				"TMPDIR":      t.TempDir(),
+			})
+			if err == nil {
+				t.Fatalf("sdkman-install.sh returned nil when %s", tt.name)
+			}
+			if log != tt.wantOutput {
+				t.Errorf("sdkman-install.sh output = %q, want %q", log, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer command ran when %s; stat error = %v", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestSdkmanInstallScriptRequiresBashFourOrNewerBeforeDownloading(t *testing.T) {
+	tests := []struct {
+		name          string
+		bashVersion   string
+		wantErr       bool
+		wantOutput    string
+		wantDownloads bool
+	}{
+		{
+			name:        "rejects Bash 3",
+			bashVersion: "GNU bash, version 3.2.57(1)-release (x86_64-apple-darwin23)\n",
+			wantErr:     true,
+			wantOutput:  "Error: Bash 4 or newer is required to install SDKMAN; found Bash 3. Upgrade Bash and ensure it is first on PATH.\n",
+		},
+		{
+			name:        "rejects invalid version",
+			bashVersion: "not a Bash version\n",
+			wantErr:     true,
+			wantOutput:  "Error: unable to determine the Bash version. SDKMAN requires Bash 4 or newer; install Bash 4+ and ensure it is first on PATH.\n",
+		},
+		{
+			name:          "accepts Bash 4",
+			bashVersion:   "GNU bash, version 4.4.23(1)-release (x86_64-pc-linux-gnu)\n",
+			wantOutput:    "==> Downloading SDKMAN install script...\nupstream-installer-ran\n==> SDKMAN installation complete\n",
+			wantDownloads: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/sdkman-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'echo upstream-installer-ran\\n'\n")
+			writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n    printf '%s' \"$BASH_VERSION_OUTPUT\"\n    exit 0\nfi\nprintf 'bash:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+				"BASH_VERSION_OUTPUT": tt.bashVersion,
+				"COMMAND_LOG":         logFile,
+				"HOME":                t.TempDir(),
+				"TMPDIR":              t.TempDir(),
+			})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("sdkman-install.sh error = %v, want error = %t; output: %s", err, tt.wantErr, log)
+			}
+			if got := log; got != tt.wantOutput {
+				t.Errorf("sdkman-install.sh output = %q, want %q", got, tt.wantOutput)
+			}
+
+			commands, err := os.ReadFile(logFile)
+			if !tt.wantDownloads && os.IsNotExist(err) {
+				return
+			}
+			if err != nil {
+				t.Fatalf("ReadFile(command log): %v", err)
+			}
+			if got := strings.Contains(string(commands), "curl\n"); got != tt.wantDownloads {
+				t.Errorf("download invoked = %t, want %t; commands = %q", got, tt.wantDownloads, commands)
+			}
+		})
+	}
+}
+
+func TestSdkmanInstallScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	homeDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/sdkman-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'exit 43\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n    printf 'GNU bash, version 5.2.0\\n'\n    exit 0\nfi\nprintf 'bash:%s\\n' \"$SDKMAN_DIR\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/sdkman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        homeDir,
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("sdkman-install.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "SDKMAN installation complete") {
+		t.Errorf("sdkman-install.sh output = %q, must not report success", log)
+	}
+	installerPath := filepath.Join(tempDir, "sdkman-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || entries[0] != "curl" || !strings.HasPrefix(entries[1], "bash:") || !strings.Contains(entries[1], ".sdkman") || !strings.HasPrefix(entries[2], "rm:") {
+		t.Errorf("commands = %q, want failed installer execution followed by cleanup", commands)
+	}
+}
+
+func TestDockerLinuxScriptInstallsThroughOfficialAptInstallerAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/docker-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://get.docker.com\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"printf '%s\\n' 'apt-repository-setup' 'apt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin'\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "sudo"), "#!/bin/sh\nprintf 'sudo:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\nexec \"$@\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "id"), "#!/bin/sh\nprintf 'id:%s:%s\\n' \"$1\" \"$2\" >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"$GROUPS_OUTPUT\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "getent"), "#!/bin/sh\nexit 0\n")
+	writeScriptStub(t, filepath.Join(binDir, "usermod"), "#!/bin/sh\nprintf 'usermod:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\nprintf 'rm:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/docker-linux.sh", binDir, map[string]string{
+		"COMMAND_LOG":   logFile,
+		"GROUPS_OUTPUT": "users wheel",
+		"TMPDIR":        tempDir,
+		"USER":          "alice",
+	})
+	if err != nil {
+		t.Fatalf("docker-linux.sh = %v, output: %s", err, log)
+	}
+	if !strings.Contains(log, "apt-repository-setup") || !strings.Contains(log, "apt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin") || !strings.Contains(log, "Docker installation complete") {
+		t.Errorf("docker-linux.sh output = %q, want official apt setup, install sequence, and completion", log)
+	}
+	aptSetup := strings.Index(log, "apt-repository-setup")
+	aptInstall := strings.Index(log, "apt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin")
+	completion := strings.Index(log, "Docker installation complete")
+	if aptSetup >= aptInstall || aptInstall >= completion {
+		t.Errorf("docker-linux.sh output = %q, want apt setup before package install and completion", log)
+	}
+	installerPath := filepath.Join(tempDir, "docker-installer")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed; stat error = %v", installerPath, err)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	for _, want := range []string{
+		"curl:https://get.docker.com",
+		"sudo:sh ",
+		"id:-nG:alice",
+		"sudo:usermod -aG docker alice",
+		"rm:",
+	} {
+		if !strings.Contains(string(commands), want) {
+			t.Errorf("commands = %q, want %q", commands, want)
+		}
+	}
+}
+
+func TestDockerLinuxScriptGroupSafetyContracts(t *testing.T) {
+	tests := []struct {
+		name            string
+		groups          string
+		idStatus        string
+		usermodStatus   string
+		user            string
+		wantErr         bool
+		wantSuccess     bool
+		wantUsermod     bool
+		wantPackageWork bool
+		wantOutput      string
+		dockerInstalled bool
+	}{
+		{name: "pre-existing Docker reconciles missing group membership without package work", groups: "users wheel", user: "alice", wantSuccess: true, wantUsermod: true, dockerInstalled: true},
+		{name: "pre-existing Docker with exact group membership skips usermod and package work", groups: "notdocker docker-foo docker", user: "alice", wantSuccess: true, dockerInstalled: true},
+		{name: "pre-existing Docker probe failure stops before group mutation", idStatus: "19", user: "alice", wantErr: true, dockerInstalled: true},
+		{name: "pre-existing Docker non-member propagates usermod failure without false success", groups: "users wheel", usermodStatus: "23", user: "alice", wantErr: true, wantUsermod: true, dockerInstalled: true},
+		{name: "fresh install exact docker token skips redundant group mutation", groups: "notdocker docker-foo docker", user: "alice", wantSuccess: true, wantPackageWork: true},
+		{name: "missing USER fails before any mutation even with pre-existing Docker", groups: "users", wantErr: true, wantOutput: "Error: USER must be set to configure Docker group membership.\n", dockerInstalled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			if tt.dockerInstalled {
+				writeScriptStub(t, filepath.Join(binDir, "docker"), "#!/bin/sh\nexit 0\n")
+			}
+			writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/docker-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\nprintf 'exit 0\\n'\n")
+			writeScriptStub(t, filepath.Join(binDir, "sudo"), "#!/bin/sh\nprintf 'sudo:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\nexec \"$@\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nexec /bin/sh \"$1\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "id"), "#!/bin/sh\nprintf 'id:%s:%s\\n' \"$1\" \"$2\" >> \"$COMMAND_LOG\"\n[ \"${ID_STATUS:-0}\" -eq 0 ] || exit \"$ID_STATUS\"\nprintf '%s\\n' \"$GROUPS_OUTPUT\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "getent"), "#!/bin/sh\nexit 0\n")
+			writeScriptStub(t, filepath.Join(binDir, "usermod"), "#!/bin/sh\nprintf 'usermod:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\nexit \"${USERMOD_STATUS:-0}\"\n")
+			writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/docker-linux.sh", binDir, map[string]string{
+				"COMMAND_LOG":    logFile,
+				"GROUPS_OUTPUT":  tt.groups,
+				"ID_STATUS":      tt.idStatus,
+				"TMPDIR":         t.TempDir(),
+				"USER":           tt.user,
+				"USERMOD_STATUS": tt.usermodStatus,
+			})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("docker-linux.sh error = %v, want error = %t; output: %s", err, tt.wantErr, log)
+			}
+			if tt.wantOutput != "" && log != tt.wantOutput {
+				t.Errorf("docker-linux.sh output = %q, want %q", log, tt.wantOutput)
+			}
+			if strings.Contains(log, "Docker installation complete") != tt.wantSuccess {
+				t.Errorf("success output = %t, want %t; output: %q", strings.Contains(log, "Docker installation complete"), tt.wantSuccess, log)
+			}
+			commands, readErr := os.ReadFile(logFile)
+			if readErr != nil && tt.user != "" {
+				t.Fatalf("ReadFile(command log): %v", readErr)
+			}
+			if tt.user == "" && !os.IsNotExist(readErr) {
+				t.Errorf("commands ran before USER validation: %q", commands)
+			}
+			if tt.user != "" && !strings.Contains(string(commands), "id:-nG:"+tt.user) {
+				t.Errorf("commands = %q, want group probe for %q", commands, tt.user)
+			}
+			packageWorkRan := strings.Contains(string(commands), "curl\n") || strings.Contains(string(commands), "sudo:sh ")
+			if packageWorkRan != tt.wantPackageWork {
+				t.Errorf("package work ran = %t, want %t; commands = %q", packageWorkRan, tt.wantPackageWork, commands)
+			}
+			if strings.Contains(string(commands), "usermod:") != tt.wantUsermod {
+				t.Errorf("usermod invoked = %t, want %t; commands = %q", strings.Contains(string(commands), "usermod:"), tt.wantUsermod, commands)
+			}
+			if tt.wantUsermod && !strings.Contains(string(commands), "sudo:usermod -aG docker "+tt.user) {
+				t.Errorf("commands = %q, want usermod for %q", commands, tt.user)
+			}
+		})
+	}
+}
+
 func TestShippedCavemanScriptReturnsDownloadFailure(t *testing.T) {
 	binDir := t.TempDir()
 	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 22\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nexit 0\n")
 
 	log, err := runPOSIXScript(t, "assets/scripts/caveman-install.sh", binDir)
 	if err == nil {
@@ -594,7 +1224,9 @@ func TestShippedCavemanScriptReturnsDownloadFailure(t *testing.T) {
 
 func TestShippedCavemanScriptRunsDownloadedInstallerWithOpenclawOnly(t *testing.T) {
 	binDir := t.TempDir()
-	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\ncat <<'EOF'\n#!/bin/sh\nif [ \"$1\" = \"--only\" ] && [ \"$2\" = \"openclaw\" ]; then\n    echo caveman-installer-ran\nelse\n    exit 9\nfi\nEOF\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\ncat <<'EOF'\n#!/bin/sh\nif [ \"$1\" = \"--only\" ] && [ \"$2\" = \"openclaw\" ] && [ \"$3\" = \"--force\" ]; then\n    echo caveman-installer-ran\nelse\n    exit 9\nfi\nEOF\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nexit 0\n")
 
 	log, err := runPOSIXScript(t, "assets/scripts/caveman-install.sh", binDir)
 	if err != nil {
@@ -605,6 +1237,253 @@ func TestShippedCavemanScriptRunsDownloadedInstallerWithOpenclawOnly(t *testing.
 	}
 	if !strings.Contains(log, "Caveman installation complete") {
 		t.Errorf("caveman script output = %q, want completion message", log)
+	}
+}
+
+func TestShippedCavemanScriptValidatesRequiredToolsBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name       string
+		missing    string
+		wantOutput string
+	}{
+		{name: "curl", missing: "curl", wantOutput: "Error: curl is required to install Caveman.\n"},
+		{name: "mktemp", missing: "mktemp", wantOutput: "Error: mktemp is required to install Caveman.\n"},
+		{name: "bash", missing: "bash", wantOutput: "Error: bash is required to install Caveman.\n"},
+		{name: "node", missing: "node", wantOutput: "Error: Node.js 18 or newer is required to install Caveman.\n"},
+		{name: "npx", missing: "npx", wantOutput: "Error: npx is required to install Caveman. Reinstall Node.js 18 or newer.\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			for command, script := range map[string]string{
+				"curl":   "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n",
+				"mktemp": "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n",
+				"bash":   "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n",
+				"node":   "#!/bin/sh\nprintf '20\\n'\n",
+				"npx":    "#!/bin/sh\nprintf 'npx\\n' >> \"$COMMAND_LOG\"\n",
+			} {
+				if command != tt.missing {
+					writeScriptStub(t, filepath.Join(binDir, command), script)
+				}
+			}
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+				"COMMAND_LOG": logFile,
+				"HOME":        t.TempDir(),
+				"TMPDIR":      t.TempDir(),
+			})
+			if err == nil {
+				t.Fatalf("caveman-install.sh returned nil without %s", tt.missing)
+			}
+			if log != tt.wantOutput {
+				t.Errorf("caveman-install.sh output = %q, want %q", log, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer mutated state without %s; stat error = %v", tt.missing, err)
+			}
+		})
+	}
+}
+
+func TestShippedCavemanScriptRejectsUnsupportedNodeBeforeDownloading(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	for command, script := range map[string]string{
+		"curl":   "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n",
+		"mktemp": "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\n",
+		"bash":   "#!/bin/sh\nprintf 'bash\\n' >> \"$COMMAND_LOG\"\n",
+		"node":   "#!/bin/sh\nprintf '16\\n'\n",
+		"npx":    "#!/bin/sh\nprintf 'npx\\n' >> \"$COMMAND_LOG\"\n",
+	} {
+		writeScriptStub(t, filepath.Join(binDir, command), script)
+	}
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("caveman-install.sh returned nil with Node 16")
+	}
+	if got, want := log, "Error: Node.js 18 or newer is required to install Caveman; found Node 16. Upgrade Node.js: https://nodejs.org\n"; got != want {
+		t.Errorf("caveman-install.sh output = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Errorf("installer mutated state with unsupported Node; stat error = %v", err)
+	}
+}
+
+func TestShippedCavemanScriptUsesNpxAndForceForCleanOpenclawWorkspace(t *testing.T) {
+	binDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/caveman-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '#!/bin/sh\\nnpx -y github:JuliusBrussee/caveman --only openclaw --force\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nprintf 'npx:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG":        logFile,
+		"HOME":               t.TempDir(),
+		"OPENCLAW_WORKSPACE": filepath.Join(t.TempDir(), "workspace"),
+		"TMPDIR":             t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("caveman-install.sh = %v, output: %s", err, log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	if got, want := string(commands), "npx:-y github:JuliusBrussee/caveman --only openclaw --force\n"; got != want {
+		t.Errorf("npx invocation = %q, want %q", got, want)
+	}
+}
+
+func TestShippedCavemanScriptSkipsOfflineOnlyForCompleteDurableInstall(t *testing.T) {
+	tests := []struct {
+		name         string
+		skill        string
+		skillDir     bool
+		missingSkill bool
+		soul         string
+		wantSkip     bool
+	}{
+		{name: "valid complete state", skill: "skill", soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n", wantSkip: true},
+		{name: "duplicate begin markers", skill: "skill", soul: "<!-- caveman-begin -->\n<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+		{name: "duplicate end markers", skill: "skill", soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n<!-- caveman-end -->\n"},
+		{name: "orphan begin marker", skill: "skill", soul: "<!-- caveman-begin -->\n"},
+		{name: "orphan end marker", skill: "skill", soul: "<!-- caveman-end -->\n"},
+		{name: "reversed markers", skill: "skill", soul: "<!-- caveman-end -->\n<!-- caveman-begin -->\n"},
+		{name: "missing skill", missingSkill: true, soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+		{name: "empty skill", skill: "", soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+		{name: "skill path is directory", skillDir: true, soul: "<!-- caveman-begin -->\n<!-- caveman-end -->\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			skillPath := filepath.Join(workspace, "skills", "caveman", "SKILL.md")
+			if !tt.missingSkill {
+				if err := os.MkdirAll(filepath.Dir(skillPath), 0755); err != nil {
+					t.Fatalf("MkdirAll skill directory: %v", err)
+				}
+				if tt.skillDir {
+					if err := os.Mkdir(skillPath, 0755); err != nil {
+						t.Fatalf("Mkdir skill path: %v", err)
+					}
+				} else if err := os.WriteFile(skillPath, []byte(tt.skill), 0600); err != nil {
+					t.Fatalf("WriteFile skill: %v", err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(workspace, "SOUL.md"), []byte(tt.soul), 0600); err != nil {
+				t.Fatalf("WriteFile SOUL.md: %v", err)
+			}
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", t.TempDir(), map[string]string{
+				"HOME":               t.TempDir(),
+				"OPENCLAW_WORKSPACE": workspace,
+				"TMPDIR":             t.TempDir(),
+			})
+			if tt.wantSkip {
+				if err != nil {
+					t.Fatalf("caveman-install.sh = %v, output: %s", err, log)
+				}
+				if got, want := log, "==> Caveman is already installed in the OpenClaw workspace; skipping.\n"; got != want {
+					t.Errorf("caveman-install.sh output = %q, want %q", got, want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("caveman-install.sh returned nil for incomplete state; output: %s", log)
+			}
+			if got, want := log, "Error: curl is required to install Caveman.\n"; got != want {
+				t.Errorf("caveman-install.sh output = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestShippedCavemanScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/caveman-installer\"\n: > \"$path\"\nprintf 'mktemp:%s\\n' \"$path\" >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] && [ \"$2\" = \"https://raw.githubusercontent.com/JuliusBrussee/caveman/main/install.sh\" ] || exit 11\nprintf '#!/bin/sh\\nexit 43\\n'\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s:%s:%s\\n' \"$1\" \"$2\" \"$3\" >> \"$COMMAND_LOG\"\nexit 43\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nexit 0\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+	log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+		"COMMAND_LOG": logFile,
+		"HOME":        t.TempDir(),
+		"TMPDIR":      tempDir,
+	})
+	if err == nil {
+		t.Fatal("caveman-install.sh returned nil after the installer failed")
+	}
+	if strings.Contains(log, "Caveman installation complete") {
+		t.Errorf("caveman-install.sh output = %q, must not report success", log)
+	}
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 3 || !strings.HasPrefix(entries[0], "mktemp:") || entries[1] != "curl" || entries[2] != "bash:"+strings.TrimPrefix(entries[0], "mktemp:")+":--only:openclaw" {
+		t.Errorf("commands = %q, want official curl followed by bash --only openclaw for the same temporary installer", commands)
+		return
+	}
+	installerPath := strings.TrimPrefix(entries[0], "mktemp:")
+	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+}
+
+func TestShippedCavemanScriptRepeatsWithFreshTemporaryInstallers(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\ncounter=\"$TMPDIR/caveman-counter\"\ncount=0\nif [ -f \"$counter\" ]; then\n    IFS= read -r count < \"$counter\"\nfi\ncount=$((count + 1))\nprintf '%s' \"$count\" > \"$counter\"\npath=\"$TMPDIR/caveman-installer-$count\"\n: > \"$path\"\nprintf 'mktemp:%s\\n' \"$path\" >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] && [ \"$2\" = \"https://raw.githubusercontent.com/JuliusBrussee/caveman/main/install.sh\" ] || exit 11\nprintf '#!/bin/sh\\nexit 0\\n'\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s:%s:%s\\n' \"$1\" \"$2\" \"$3\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "node"), "#!/bin/sh\nprintf '20\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nexit 0\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+	for range 2 {
+		log, err := runPOSIXScriptWithEnv(t, "assets/scripts/caveman-install.sh", binDir, map[string]string{
+			"COMMAND_LOG": logFile,
+			"HOME":        t.TempDir(),
+			"TMPDIR":      tempDir,
+		})
+		if err != nil {
+			t.Fatalf("caveman-install.sh = %v, output: %s", err, log)
+		}
+	}
+
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 6 {
+		t.Fatalf("commands = %q, want two isolated mktemp/curl/sh installation sequences", commands)
+	}
+	for i := 0; i < len(entries); i += 3 {
+		if !strings.HasPrefix(entries[i], "mktemp:") || entries[i+1] != "curl" || entries[i+2] != "bash:"+strings.TrimPrefix(entries[i], "mktemp:")+":--only:openclaw" {
+			t.Errorf("sequence %d commands = %q, want official curl followed by bash --only openclaw", i/3, entries[i:i+3])
+			continue
+		}
+		installerPath := strings.TrimPrefix(entries[i], "mktemp:")
+		if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+			t.Errorf("temporary installer %q was not removed after repeat execution; stat error = %v", installerPath, err)
+		}
 	}
 }
 
@@ -683,6 +1562,49 @@ func TestShippedGhosttyLinuxScriptValidatesRequiredToolsBeforeDownloading(t *tes
 	}
 }
 
+func TestShippedGhosttyLinuxScriptValidatesEveryRequiredToolBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name       string
+		missing    string
+		wantOutput string
+	}{
+		{name: "curl", missing: "curl", wantOutput: "Error: curl is required to install Ghostty on Ubuntu.\n"},
+		{name: "mktemp", missing: "mktemp", wantOutput: "Error: mktemp is required to install Ghostty on Ubuntu.\n"},
+		{name: "bash", missing: "bash", wantOutput: "Error: bash is required to install Ghostty on Ubuntu.\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			for command, script := range map[string]string{
+				"curl":   "#!/bin/sh\nprintf 'curl\n' >> \"$COMMAND_LOG\"\n",
+				"mktemp": "#!/bin/sh\nprintf 'mktemp\n' >> \"$COMMAND_LOG\"\n",
+				"bash":   "#!/bin/sh\nprintf 'bash\n' >> \"$COMMAND_LOG\"\n",
+			} {
+				if command != tt.missing {
+					writeScriptStub(t, filepath.Join(binDir, command), script)
+				}
+			}
+
+			log, err := runPOSIXScriptWithEnv(t, "assets/scripts/ghostty-linux.sh", binDir, map[string]string{
+				"COMMAND_LOG": logFile,
+				"HOME":        t.TempDir(),
+				"TMPDIR":      t.TempDir(),
+			})
+			if err == nil {
+				t.Fatalf("ghostty-linux.sh returned nil without %s", tt.missing)
+			}
+			if got := log; got != tt.wantOutput {
+				t.Errorf("ghostty-linux.sh output = %q, want %q", got, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer mutated state without %s; stat error = %v", tt.missing, err)
+			}
+		})
+	}
+}
+
 func TestShippedGhosttyLinuxScriptPropagatesInstallerFailureAndCleansUp(t *testing.T) {
 	binDir := t.TempDir()
 	logFile := filepath.Join(t.TempDir(), "commands.log")
@@ -709,6 +1631,104 @@ func TestShippedGhosttyLinuxScriptPropagatesInstallerFailureAndCleansUp(t *testi
 	installerPath := strings.TrimPrefix(entries[0], "curl:")
 	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
 		t.Errorf("temporary installer %q was not removed after installer failure; stat error = %v", installerPath, err)
+	}
+}
+
+func TestShippedGhosttyLinuxScriptRepeatsWithFreshTemporaryInstallers(t *testing.T) {
+	binDir := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\ncounter=\"$TMPDIR/ghostty-counter\"\ncount=0\nif [ -f \"$counter\" ]; then\n    IFS= read -r count < \"$counter\"\nfi\ncount=$((count + 1))\nprintf '%s' \"$count\" > \"$counter\"\npath=\"$TMPDIR/ghostty-installer-$count\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf '#!/bin/sh\\necho upstream-installer-ran\\n' > \"$3\"\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "bash"), "#!/bin/sh\nprintf 'bash:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "rm"), "#!/bin/sh\n/bin/rm \"$@\"\n")
+
+	for range 2 {
+		log, err := runPOSIXScriptWithEnv(t, "assets/scripts/ghostty-linux.sh", binDir, map[string]string{
+			"COMMAND_LOG": logFile,
+			"HOME":        t.TempDir(),
+			"TMPDIR":      tempDir,
+		})
+		if err != nil {
+			t.Fatalf("ghostty-linux.sh = %v, output: %s", err, log)
+		}
+	}
+
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 4 || !strings.HasPrefix(entries[0], "curl:") || !strings.HasPrefix(entries[2], "curl:") ||
+		entries[1] != "bash:"+strings.TrimPrefix(entries[0], "curl:") ||
+		entries[3] != "bash:"+strings.TrimPrefix(entries[2], "curl:") {
+		t.Errorf("commands = %q, want two isolated curl/bash installation sequences", commands)
+		return
+	}
+	for _, entry := range []string{entries[0], entries[2]} {
+		installerPath := strings.TrimPrefix(entry, "curl:")
+		if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
+			t.Errorf("temporary installer %q was not removed after repeat execution; stat error = %v", installerPath, err)
+		}
+	}
+}
+
+func TestGhosttyDocumentationUsesTheCommunityUbuntuInstaller(t *testing.T) {
+	repoRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("Abs repository root: %v", err)
+	}
+
+	specification, err := os.ReadFile(filepath.Join(repoRoot, "docs", "specs.md"))
+	if err != nil {
+		t.Fatalf("ReadFile Ghostty specification: %v", err)
+	}
+	if !strings.Contains(string(specification), "community-maintained `ghostty-ubuntu` installer") {
+		t.Errorf("Ghostty specification must name the community-maintained ghostty-ubuntu installer")
+	}
+	if strings.Contains(string(specification), "download `.tar.gz` from GitHub Releases") {
+		t.Errorf("Ghostty specification must not describe a nonexistent official Ubuntu tarball")
+	}
+
+	tasks, err := os.ReadFile(filepath.Join(repoRoot, "docs", "tasks.md"))
+	if err != nil {
+		t.Fatalf("ReadFile Ghostty task: %v", err)
+	}
+	if !strings.Contains(string(tasks), "community `ghostty-ubuntu` installer") {
+		t.Errorf("T-078 must name the community ghostty-ubuntu installer")
+	}
+}
+
+func TestShellCheckWorkflowEnforcesTheShippedScriptGate(t *testing.T) {
+	repoRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("Abs repository root: %v", err)
+	}
+
+	workflow, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "shellcheck.yml"))
+	if err != nil {
+		t.Fatalf("ReadFile ShellCheck workflow: %v", err)
+	}
+
+	content := string(workflow)
+	for _, requirement := range []struct {
+		name string
+		want string
+	}{
+		{name: "Ubuntu 24.04 runner", want: "runs-on: ubuntu-24.04"},
+		{name: "push trigger", want: "push:"},
+		{name: "pull request trigger", want: "pull_request:"},
+		{name: "script path trigger", want: "- 'assets/scripts/**'"},
+		{name: "workflow path trigger", want: "- '.github/workflows/shellcheck.yml'"},
+		{name: "pinned ShellCheck release", want: "v0.10.0"},
+		{name: "ShellCheck SHA-256", want: "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87"},
+		{name: "exact fail-closed command", want: "shellcheck --shell=sh assets/scripts/*.sh"},
+	} {
+		t.Run(requirement.name, func(t *testing.T) {
+			if !strings.Contains(content, requirement.want) {
+				t.Errorf("ShellCheck workflow must contain %q", requirement.want)
+			}
+		})
 	}
 }
 
@@ -786,6 +1806,91 @@ func TestShippedFontLinuxScriptStopsWhenUnzipIsMissing(t *testing.T) {
 	}
 	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
 		t.Errorf("curl ran without unzip; stat error = %v", err)
+	}
+}
+
+func TestShippedFontLinuxScriptValidatesRequiredToolsBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name       string
+		missing    string
+		wantOutput string
+	}{
+		{name: "curl", missing: "curl", wantOutput: "Error: curl is required to install Nerd Fonts.\n"},
+		{name: "mktemp", missing: "mktemp", wantOutput: "Error: mktemp is required to install Nerd Fonts.\n"},
+		{name: "fc-cache", missing: "fc-cache", wantOutput: "Error: fc-cache is required to install Nerd Fonts.\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			logFile := filepath.Join(t.TempDir(), "commands.log")
+			for command, script := range map[string]string{
+				"curl":     "#!/bin/sh\nprintf 'curl\\n' >> \"$COMMAND_LOG\"\n",
+				"mktemp":   "#!/bin/sh\nprintf 'mktemp\\n' >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"$1\"\n",
+				"mkdir":    "#!/bin/sh\nprintf 'mkdir\\n' >> \"$COMMAND_LOG\"\n",
+				"rm":       "#!/bin/sh\nprintf 'rm\\n' >> \"$COMMAND_LOG\"\n",
+				"unzip":    "#!/bin/sh\nprintf 'unzip\\n' >> \"$COMMAND_LOG\"\n",
+				"fc-cache": "#!/bin/sh\nprintf 'fc-cache\\n' >> \"$COMMAND_LOG\"\n",
+			} {
+				if command != tt.missing {
+					writeScriptStub(t, filepath.Join(binDir, command), script)
+				}
+			}
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("COMMAND_LOG", logFile)
+			t.Setenv("FONT_NAME", "Hack.zip")
+
+			log, err := runPOSIXScriptWithPath(t, "assets/scripts/font-linux.sh", binDir)
+			if err == nil {
+				t.Fatalf("font-linux.sh returned nil without %s", tt.missing)
+			}
+			if got := log; got != tt.wantOutput {
+				t.Errorf("font-linux.sh output = %q, want %q", got, tt.wantOutput)
+			}
+			if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+				t.Errorf("installer mutated state without %s; stat error = %v", tt.missing, err)
+			}
+		})
+	}
+}
+
+func TestShippedFontLinuxScriptRepeatsWithOverwriteAndCleansEachArchive(t *testing.T) {
+	binDir := t.TempDir()
+	fontHome := t.TempDir()
+	tempDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), "commands.log")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nprintf 'archive' > \"$3\"\nprintf 'curl:%s\\n' \"$3\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "unzip"), "#!/bin/sh\n[ \"$1\" = \"-o\" ] || exit 21\nprintf 'unzip:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n")
+	writeScriptStub(t, filepath.Join(binDir, "fc-cache"), "#!/bin/sh\nprintf 'cache:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\n")
+	t.Setenv("HOME", fontHome)
+	t.Setenv("TMPDIR", tempDir)
+	t.Setenv("COMMAND_LOG", logFile)
+	t.Setenv("FONT_NAME", "Hack.zip")
+
+	for range 2 {
+		log, err := runPOSIXScript(t, "assets/scripts/font-linux.sh", binDir)
+		if err != nil {
+			t.Fatalf("font-linux.sh = %v, output: %s", err, log)
+		}
+	}
+
+	commands, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile(command log): %v", err)
+	}
+	entries := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(entries) != 6 || !strings.HasPrefix(entries[0], "curl:") || !strings.HasPrefix(entries[3], "curl:") ||
+		entries[1] != "unzip:"+strings.TrimPrefix(entries[0], "curl:") ||
+		entries[4] != "unzip:"+strings.TrimPrefix(entries[3], "curl:") ||
+		!strings.HasPrefix(entries[2], "cache:") || !strings.HasPrefix(entries[5], "cache:") {
+		t.Errorf("commands = %q, want two curl/unzip/cache installation sequences", commands)
+		return
+	}
+	for _, entry := range []string{entries[0], entries[3]} {
+		archive := strings.TrimPrefix(entry, "curl:")
+		if _, err := os.Stat(archive); !os.IsNotExist(err) {
+			t.Errorf("temporary archive %q was not removed after installation; stat error = %v", archive, err)
+		}
 	}
 }
 
@@ -878,6 +1983,22 @@ func runPOSIXScriptWithPath(t *testing.T, script, path string) (string, error) {
 
 	cmd := exec.Command(posixShell(t), filepath.Join(repoRoot, script))
 	cmd.Env = replaceEnv(os.Environ(), "PATH", path)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func runPOSIXScriptWithEnv(t *testing.T, script, path string, env map[string]string) (string, error) {
+	t.Helper()
+	repoRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("Abs repository root: %v", err)
+	}
+
+	cmd := exec.Command(posixShell(t), filepath.Join(repoRoot, script))
+	cmd.Env = replaceEnv(os.Environ(), "PATH", path)
+	for key, value := range env {
+		cmd.Env = replaceEnv(cmd.Env, key, value)
+	}
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
