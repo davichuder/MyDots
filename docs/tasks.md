@@ -584,14 +584,14 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-083** Write failing tests for `ProgressRow`:
+- [x] **T-083** Write failing tests for `ProgressRow`:
   - Each `InstallStatus` value renders the correct icon (`✅`, `❌`, `⏭`, `—`, spinner for running)
   - Module name is visible in the rendered output
   - Golden file: rendered row for each distinct status value
 
 **[GREEN]**
 
-- [ ] **T-084** Implement `ProgressRow`
+- [x] **T-084** Implement `ProgressRow`
 
 ---
 
