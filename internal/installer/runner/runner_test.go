@@ -1081,7 +1081,7 @@ func TestDockerLinuxScriptInstallsThroughOfficialAptInstallerAndCleansUp(t *test
 	tempDir := t.TempDir()
 	logFile := filepath.Join(t.TempDir(), "commands.log")
 	writeScriptStub(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\npath=\"$TMPDIR/docker-installer\"\n: > \"$path\"\nprintf '%s\\n' \"$path\"\n")
-	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://get.docker.com\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf 'printf \\\"apt-repository-setup\\\\napt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin\\\\n\\\"\\n'\n")
+	writeScriptStub(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n[ \"$1\" = \"-fsSL\" ] || exit 11\n[ \"$2\" = \"https://get.docker.com\" ] || exit 12\nprintf 'curl:%s\\n' \"$2\" >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"printf '%s\\n' 'apt-repository-setup' 'apt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin'\"\n")
 	writeScriptStub(t, filepath.Join(binDir, "sudo"), "#!/bin/sh\nprintf 'sudo:%s\\n' \"$*\" >> \"$COMMAND_LOG\"\nexec \"$@\"\n")
 	writeScriptStub(t, filepath.Join(binDir, "sh"), "#!/bin/sh\nprintf 'sh:%s\\n' \"$1\" >> \"$COMMAND_LOG\"\nexec /bin/sh \"$1\"\n")
 	writeScriptStub(t, filepath.Join(binDir, "id"), "#!/bin/sh\nprintf 'id:%s:%s\\n' \"$1\" \"$2\" >> \"$COMMAND_LOG\"\nprintf '%s\\n' \"$GROUPS_OUTPUT\"\n")
@@ -1100,6 +1100,12 @@ func TestDockerLinuxScriptInstallsThroughOfficialAptInstallerAndCleansUp(t *test
 	}
 	if !strings.Contains(log, "apt-repository-setup") || !strings.Contains(log, "apt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin") || !strings.Contains(log, "Docker installation complete") {
 		t.Errorf("docker-linux.sh output = %q, want official apt setup, install sequence, and completion", log)
+	}
+	aptSetup := strings.Index(log, "apt-repository-setup")
+	aptInstall := strings.Index(log, "apt-install:docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin")
+	completion := strings.Index(log, "Docker installation complete")
+	if !(aptSetup < aptInstall && aptInstall < completion) {
+		t.Errorf("docker-linux.sh output = %q, want apt setup before package install and completion", log)
 	}
 	installerPath := filepath.Join(tempDir, "docker-installer")
 	if _, err := os.Stat(installerPath); !os.IsNotExist(err) {
