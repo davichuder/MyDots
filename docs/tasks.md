@@ -599,7 +599,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-085** Write failing tests for `main_menu.go` using direct model state manipulation:
+- [x] **T-085** Write failing tests for `main_menu.go` using direct model state manipulation:
   - All 5 menu items are present in `View()` output
   - Selecting "Quit" returns `tea.Quit` command
   - Selecting "Install" when config file is missing: model stays on main menu, error text is visible in `View()`
@@ -608,7 +608,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-086** Implement `main_menu.go` (SC-08)
+- [x] **T-086** Implement `main_menu.go` (SC-08)
 
 **[RED]**
 
