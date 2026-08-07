@@ -22,6 +22,7 @@ type Screen string
 
 const (
 	ScreenConfig    Screen = "config"
+	ScreenMain      Screen = "main"
 	ScreenInstall   Screen = "install"
 	ScreenBackup    Screen = "backup"
 	ScreenReference Screen = "reference"

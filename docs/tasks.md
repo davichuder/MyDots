@@ -612,7 +612,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-087** Write failing tests for `config_menu.go` using direct model manipulation:
+- [x] **T-087** Write failing tests for `config_menu.go` using direct model manipulation:
   - Step 1 presents exactly 5 font options
   - Each step pre-selects the value from `DefaultConfig()`
   - Completing all 6 steps writes `mydots-config.json` to the correct path
@@ -621,7 +621,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-088** Implement `config_menu.go` (FR-04)
+- [x] **T-088** Implement `config_menu.go` (FR-04)
 
 **[RED]**
 
