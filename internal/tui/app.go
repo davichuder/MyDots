@@ -76,6 +76,10 @@ func (app App) route(route screens.ChangeScreenMsg) (tea.Model, tea.Cmd) {
 		if result, ok := route.Payload.(screens.InstallResult); ok {
 			app.model = screens.NewResultScreen(result, app.dependencies.Platform.Variant == platform.WSL2)
 		}
+	case screens.ScreenBackup:
+		if app.dependencies.BackupFactory != nil {
+			app.model = app.dependencies.BackupFactory()
+		}
 	case screens.ScreenReference:
 		app.model = screens.NewReferenceMenu(app.dependencies.Assets)
 	}

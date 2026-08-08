@@ -124,6 +124,26 @@ func TestAppRoutesConfigIssueToAssistantWithOriginalError(t *testing.T) {
 	}
 }
 
+func TestAppRoutesBackupToInjectedFactory(t *testing.T) {
+	created := 0
+	app := NewApp(Dependencies{
+		Platform: platform.Platform{OS: platform.Darwin, Variant: platform.Native},
+		BackupFactory: func() tea.Model {
+			created++
+			return screens.NewPreflight(nil)
+		},
+	})
+
+	updated, _ := app.Update(screens.ChangeScreenMsg{Screen: screens.ScreenBackup})
+	app = updated.(App)
+	if created != 1 {
+		t.Errorf("backup factory calls = %d, want 1", created)
+	}
+	if view := app.View().Content; !strings.Contains(view, "WSL2 setup guide") {
+		t.Errorf("backup view = %q, want injected backup model", view)
+	}
+}
+
 func TestAppRendersConfigIssueEmittedByConfigMenuWithoutRetryLoop(t *testing.T) {
 	issue := errors.New("configuration save failed: disk is read-only")
 	app := NewApp(Dependencies{Platform: platform.Platform{OS: platform.Darwin}, ConfigPath: "mydots-config.json"})

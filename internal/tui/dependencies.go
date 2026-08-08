@@ -17,4 +17,6 @@ type Dependencies struct {
 	ConfigPath  string
 	// InstallFactory defers construction of the installation screen until the user explicitly selects Install.
 	InstallFactory func(config.Config) tea.Model
+	// BackupFactory supplies a backup model with caller-owned, pre-resolved paths.
+	BackupFactory func() tea.Model
 }

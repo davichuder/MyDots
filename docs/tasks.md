@@ -665,14 +665,14 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-095** Write failing tests for `backup_menu.go`:
+- [x] **T-095** Write failing tests for `backup_menu.go`:
   - "Create backup now" triggers backup of all managed config paths
   - "Delete a backup" lists existing backups and deletes the selected one
   - Empty backup list: appropriate empty-state message in `View()`
 
 **[GREEN]**
 
-- [ ] **T-096** Implement `backup_menu.go` (FR-13)
+- [x] **T-096** Implement `backup_menu.go` (FR-13)
 
 ---
 
