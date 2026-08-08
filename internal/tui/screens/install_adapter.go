@@ -58,6 +58,11 @@ func (runner ModuleSessionRunner) Start(ctx context.Context, request InstallRequ
 	events := make(chan InstallEvent, 128)
 	go func() {
 		defer close(events)
+		plan := runner.buildPlan(request)
+		criticalModules := make(map[installer.ModuleID]bool, len(plan))
+		for _, module := range plan {
+			criticalModules[module.ID()] = module.Criticality() == installer.Critical
+		}
 		progress := make(chan installer.ProgressEvent, 128)
 		installContext := installer.InstallContext{
 			Platform:         request.Platform,
@@ -67,11 +72,18 @@ func (runner ModuleSessionRunner) Start(ctx context.Context, request InstallRequ
 			Cancel:           ctx,
 			Assets:           request.Assets,
 		}
-		go installer.Run(runner.buildPlan(request), installContext, progress)
+		go installer.Run(plan, installContext, progress)
+		var criticalErr error
 		for event := range progress {
+			if event.Err != nil && criticalModules[event.ModuleID] {
+				criticalErr = event.Err
+			}
 			events <- InstallEvent{Kind: InstallProgressEvent, Progress: event}
 		}
-		events <- InstallEvent{Kind: InstallDoneEvent, Cancelled: ctx.Err() != nil, Err: ctx.Err()}
+		if criticalErr == nil {
+			criticalErr = ctx.Err()
+		}
+		events <- InstallEvent{Kind: InstallDoneEvent, Cancelled: ctx.Err() != nil, Err: criticalErr}
 	}()
 	return events
 }

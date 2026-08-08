@@ -641,7 +641,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-091** Write failing tests for `result_screen.go`:
+- [x] **T-091** Write failing tests for `result_screen.go`:
   - All modules succeeded: success message with count visible
   - Some non-critical failures: warning count and failed module names visible
   - Critical failure: specific module name and failure message visible
@@ -650,7 +650,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-092** Implement `result_screen.go` (SCR-08, NFR-14)
+- [x] **T-092** Implement `result_screen.go` (SCR-08, NFR-14)
 
 **[RED]**
 

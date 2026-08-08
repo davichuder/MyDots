@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbletea/v2"
 	"github.com/davichuder/MyDots/internal/config"
 	"github.com/davichuder/MyDots/internal/installer"
 	"github.com/davichuder/MyDots/internal/platform"
@@ -60,6 +61,42 @@ func TestModuleSessionRunnerPreservesInstallerRunSemantics(t *testing.T) {
 	}
 	if failing.brewPath == nil {
 		t.Error("install context did not provide the session BrewPath")
+	}
+}
+
+func TestModuleSessionRunnerCriticalFailureRendersCriticalResult(t *testing.T) {
+	criticalErr := errors.New("critical install failure")
+	runner := NewModuleSessionRunner(func(InstallRequest) []installer.Module {
+		return []installer.Module{&sessionModule{id: installer.ModHomebrew, criticality: installer.Critical, installErr: criticalErr}}
+	})
+	screen := NewInstallScreen(InstallRequest{Config: config.DefaultConfig()}, runner, fakeElevation{keepalive: &fakeKeepalive{}})
+
+	updated, startCommand := screen.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	screen = installScreen(t, updated)
+	updated, waitCommand := screen.Update(commandMessage(t, startCommand))
+	screen = installScreen(t, updated)
+
+	for {
+		updated, nextCommand := screen.Update(commandMessage(t, waitCommand))
+		screen = installScreen(t, updated)
+		if nextCommand == nil {
+			t.Fatal("progress update command = nil, want completion drain")
+		}
+		message := commandMessage(t, nextCommand)
+		if result, ok := message.(ChangeScreenMsg); ok {
+			outcome, ok := result.Payload.(InstallResult)
+			if !ok {
+				t.Fatalf("result payload = %T, want InstallResult", result.Payload)
+			}
+			if !errors.Is(outcome.Err, criticalErr) {
+				t.Fatalf("result error = %v, want %v", outcome.Err, criticalErr)
+			}
+			if view := NewResultScreen(outcome, false).View().Content; !strings.Contains(view, "Installation failed") {
+				t.Errorf("result view = %q, want critical failure", view)
+			}
+			return
+		}
+		waitCommand = nextCommand
 	}
 }
 
@@ -141,14 +178,20 @@ type fakeModule struct {
 type sessionModule struct {
 	id           installer.ModuleID
 	dependencies []installer.ModuleID
+	criticality  installer.Criticality
 	installErr   error
 	starts       int
 	brewPath     *string
 }
 
-func (module *sessionModule) ID() installer.ModuleID             { return module.id }
-func (module *sessionModule) Name() string                       { return string(module.id) }
-func (module *sessionModule) Criticality() installer.Criticality { return installer.NonCritical }
+func (module *sessionModule) ID() installer.ModuleID { return module.id }
+func (module *sessionModule) Name() string           { return string(module.id) }
+func (module *sessionModule) Criticality() installer.Criticality {
+	if module.criticality != "" {
+		return module.criticality
+	}
+	return installer.NonCritical
+}
 func (module *sessionModule) Dependencies() []installer.ModuleID { return module.dependencies }
 func (module *sessionModule) IsInstalled(platform.Platform) bool { return false }
 func (module *sessionModule) AuditInfo() string                  { return "" }
