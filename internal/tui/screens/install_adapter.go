@@ -2,8 +2,10 @@ package screens
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"time"
 
 	"github.com/davichuder/MyDots/internal/config"
@@ -165,13 +167,22 @@ type Keepalive interface{ Stop() }
 
 // SudoElevation releases raw mode, validates sudo, restores raw mode, then keeps sudo alive.
 type SudoElevation struct {
-	terminal TerminalHandoff
-	clock    Clock
-	sudo     SudoValidator
+	terminal    TerminalHandoff
+	clock       Clock
+	sudo        SudoValidator
+	diagnostics io.Writer
 }
 
 func NewSudoElevation(terminal TerminalHandoff, clock Clock, sudo SudoValidator) SudoElevation {
-	return SudoElevation{terminal: terminal, clock: clock, sudo: sudo}
+	return NewSudoElevationWithDiagnostics(terminal, clock, sudo, os.Stderr)
+}
+
+// NewSudoElevationWithDiagnostics reports unrecoverable terminal restoration failures outside the TUI.
+func NewSudoElevationWithDiagnostics(terminal TerminalHandoff, clock Clock, sudo SudoValidator, diagnostics io.Writer) SudoElevation {
+	if diagnostics == nil {
+		diagnostics = os.Stderr
+	}
+	return SudoElevation{terminal: terminal, clock: clock, sudo: sudo, diagnostics: diagnostics}
 }
 
 func (elevation SudoElevation) Acquire(ctx context.Context) (Keepalive, error) {
@@ -179,13 +190,28 @@ func (elevation SudoElevation) Acquire(ctx context.Context) (Keepalive, error) {
 		return nil, err
 	}
 	if err := elevation.sudo.Validate(ctx); err != nil {
-		_ = elevation.terminal.Restore()
+		if restoreErr := elevation.terminal.Restore(); restoreErr != nil {
+			return nil, elevation.terminalRestoreError(restoreErr)
+		}
 		return nil, err
 	}
 	if err := elevation.terminal.Restore(); err != nil {
-		return nil, err
+		return nil, elevation.terminalRestoreError(err)
 	}
 	return newSudoKeepalive(ctx, elevation.clock, elevation.sudo), nil
+}
+
+// TerminalRestoreError means the terminal state is unknown and the TUI must exit instead of rendering again.
+type TerminalRestoreError struct{ Err error }
+
+func (err TerminalRestoreError) Error() string {
+	return fmt.Sprintf("terminal recovery failed: %v", err.Err)
+}
+func (err TerminalRestoreError) Unwrap() error { return err.Err }
+
+func (elevation SudoElevation) terminalRestoreError(err error) error {
+	_, _ = fmt.Fprintf(elevation.diagnostics, "mydots: terminal recovery failed after sudo validation: %v\n", err)
+	return TerminalRestoreError{Err: err}
 }
 
 type sudoKeepalive struct {

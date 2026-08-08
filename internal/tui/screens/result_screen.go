@@ -82,7 +82,11 @@ func (screen ResultScreen) failedModuleNames() string {
 	failed := make([]string, 0, screen.failedCount())
 	for _, row := range screen.result.Rows {
 		if row.Status == installer.StatusFailed {
-			failed = append(failed, string(row.ModuleID))
+			name := row.ModuleName
+			if name == "" {
+				name = string(row.ModuleID)
+			}
+			failed = append(failed, name)
 		}
 	}
 	return strings.Join(failed, ", ")

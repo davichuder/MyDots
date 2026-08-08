@@ -106,6 +106,28 @@ func TestAppReplaysWindowSizeToRoutedInstallScreen(t *testing.T) {
 	}
 }
 
+func TestAppRoutesCancelledElevationDirectlyToMainMenu(t *testing.T) {
+	app := NewApp(Dependencies{
+		Platform: platform.Platform{OS: platform.Darwin, Variant: platform.Native},
+		InstallFactory: func(config.Config) tea.Model {
+			return screens.NewInstallScreen(screens.InstallRequest{}, cancelledElevationRunner{}, cancelledElevation{})
+		},
+	})
+
+	updated, _ := app.Update(screens.ChangeScreenMsg{Screen: screens.ScreenInstall, Payload: config.DefaultConfig()})
+	app = updated.(App)
+	updated, startCommand := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	app = updated.(App)
+	updated, routeCommand := app.Update(appCommandMessage(t, startCommand))
+	app = updated.(App)
+	updated, _ = app.Update(appCommandMessage(t, routeCommand))
+	app = updated.(App)
+
+	if view := app.View().Content; !strings.Contains(view, "MyDots") {
+		t.Errorf("View() = %q, want main menu after cancelled elevation", view)
+	}
+}
+
 func TestAppRoutesConfigIssueToAssistantWithOriginalError(t *testing.T) {
 	issue := errors.New("saved config contains invalid JSON")
 	app := NewApp(Dependencies{ConfigPath: "mydots-config.json"})
@@ -227,9 +249,29 @@ func runProgram(t *testing.T, model tea.Model, input string) string {
 	return output.String()
 }
 
+func appCommandMessage(t *testing.T, command tea.Cmd) tea.Msg {
+	t.Helper()
+	if command == nil {
+		t.Fatal("command = nil")
+	}
+	return command()
+}
+
 var updateProgramGolden = flag.Bool("update", false, "update program golden files")
 
 type sizeStartingModel struct{ started *int }
+
+type cancelledElevation struct{}
+
+func (cancelledElevation) Acquire(context.Context) (screens.Keepalive, error) {
+	return nil, context.Canceled
+}
+
+type cancelledElevationRunner struct{}
+
+func (cancelledElevationRunner) Start(context.Context, screens.InstallRequest) <-chan screens.InstallEvent {
+	return make(chan screens.InstallEvent)
+}
 
 func (model sizeStartingModel) Init() tea.Cmd { return nil }
 

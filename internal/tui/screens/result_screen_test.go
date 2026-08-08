@@ -26,15 +26,15 @@ func TestResultScreenOutcomePrecedence(t *testing.T) {
 		},
 		{
 			name:      "warnings",
-			result:    InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModGit, Status: installer.StatusInstalled}, {ModuleID: installer.ModGo, Status: installer.StatusFailed}, {ModuleID: installer.ModDocker, Status: installer.StatusFailed}}},
+			result:    InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModGit, ModuleName: "Git Setup", Status: installer.StatusInstalled}, {ModuleID: installer.ModGo, ModuleName: "Go Toolchain", Status: installer.StatusFailed}, {ModuleID: installer.ModDocker, ModuleName: "Docker Engine", Status: installer.StatusFailed}}},
 			wantTitle: "Installation completed with warnings",
-			wantText:  []string{"2 warnings", string(installer.ModGo), string(installer.ModDocker)},
+			wantText:  []string{"2 warnings", "Go Toolchain", "Docker Engine"},
 		},
 		{
 			name:      "critical failure",
-			result:    InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModHomebrew, Status: installer.StatusFailed}}, Err: errors.New("brew unavailable")},
+			result:    InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModHomebrew, ModuleName: "Homebrew", Status: installer.StatusFailed}}, Err: errors.New("brew unavailable")},
 			wantTitle: "Installation failed",
-			wantText:  []string{string(installer.ModHomebrew), "brew unavailable"},
+			wantText:  []string{"Homebrew", "brew unavailable"},
 		},
 		{
 			name:      "cancellation overrides critical failure",
@@ -89,8 +89,8 @@ func TestResultScreenViewGoldens(t *testing.T) {
 		wsl2   bool
 	}{
 		{name: "success", result: InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModGit, Status: installer.StatusInstalled}, {ModuleID: installer.ModGo, Status: installer.StatusSkipped}}}},
-		{name: "warnings", result: InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModGit, Status: installer.StatusInstalled}, {ModuleID: installer.ModGo, Status: installer.StatusFailed}, {ModuleID: installer.ModDocker, Status: installer.StatusFailed}}}},
-		{name: "critical-failure", result: InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModHomebrew, Status: installer.StatusFailed}}, Err: errors.New("brew unavailable")}},
+		{name: "warnings", result: InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModGit, ModuleName: "Git Setup", Status: installer.StatusInstalled}, {ModuleID: installer.ModGo, ModuleName: "Go Toolchain", Status: installer.StatusFailed}, {ModuleID: installer.ModDocker, ModuleName: "Docker Engine", Status: installer.StatusFailed}}}},
+		{name: "critical-failure", result: InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModHomebrew, ModuleName: "Homebrew", Status: installer.StatusFailed}}, Err: errors.New("brew unavailable")}},
 		{name: "cancellation-progress", result: InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModGit, Status: installer.StatusInstalled}, {ModuleID: installer.ModHomebrew, Status: installer.StatusFailed}}, Cancelled: true, Err: errors.New("brew unavailable")}},
 		{name: "wsl2-note", result: InstallResult{Rows: []InstallResultRow{{ModuleID: installer.ModGit, Status: installer.StatusInstalled}}}, wsl2: true},
 	}

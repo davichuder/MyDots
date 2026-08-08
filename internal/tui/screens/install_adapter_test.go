@@ -173,6 +173,28 @@ func TestSudoElevationRestoresTerminalWhenValidationFails(t *testing.T) {
 	}
 }
 
+func TestSudoElevationAbortsWithPersistentDiagnosticWhenRestoreFails(t *testing.T) {
+	restoreErr := errors.New("raw terminal restore failed")
+	terminal := &fakeTerminal{restoreErr: restoreErr}
+	diagnostics := &bytes.Buffer{}
+	elevation := NewSudoElevationWithDiagnostics(terminal, newFakeClock(), &fakeSudo{}, diagnostics)
+
+	if _, err := elevation.Acquire(context.Background()); err == nil {
+		t.Fatal("Acquire() error = nil, want terminal recovery error")
+	} else {
+		var recovery TerminalRestoreError
+		if !errors.As(err, &recovery) {
+			t.Fatalf("Acquire() error = %T, want TerminalRestoreError", err)
+		}
+		if !errors.Is(err, restoreErr) {
+			t.Errorf("Acquire() error = %v, want wrapped restore error", err)
+		}
+	}
+	if got, want := diagnostics.String(), "mydots: terminal recovery failed after sudo validation: raw terminal restore failed\n"; got != want {
+		t.Errorf("diagnostic = %q, want %q", got, want)
+	}
+}
+
 func TestCommandSudoValidatorRunsSudoValidationOnly(t *testing.T) {
 	commands := &fakeCommandExecutor{}
 	streams := CommandStreams{Stdin: strings.NewReader("password\n"), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
@@ -279,10 +301,13 @@ func (module *fakeModule) Install(ctx installer.InstallContext) error {
 	return nil
 }
 
-type fakeTerminal struct{ releases, restores int }
+type fakeTerminal struct {
+	releases, restores int
+	restoreErr         error
+}
 
 func (terminal *fakeTerminal) Release() error { terminal.releases++; return nil }
-func (terminal *fakeTerminal) Restore() error { terminal.restores++; return nil }
+func (terminal *fakeTerminal) Restore() error { terminal.restores++; return terminal.restoreErr }
 
 type fakeSudo struct {
 	mu     sync.Mutex

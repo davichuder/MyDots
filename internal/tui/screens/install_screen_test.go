@@ -243,6 +243,57 @@ func TestInstallScreenCancellationCancelsInFlightElevation(t *testing.T) {
 	}
 }
 
+func TestInstallScreenCancelledElevationReturnsDirectlyToMainMenu(t *testing.T) {
+	screen := NewInstallScreen(InstallRequest{}, &fakeSessionRunner{events: make(chan InstallEvent)}, fakeElevation{err: context.Canceled})
+
+	updated, startCommand := screen.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, routeCommand := installScreen(t, updated).Update(commandMessage(t, startCommand))
+	route, ok := commandMessage(t, routeCommand).(ChangeScreenMsg)
+	if !ok {
+		t.Fatalf("cancellation route = %T, want ChangeScreenMsg", commandMessage(t, routeCommand))
+	}
+	if route.Screen != ScreenMain {
+		t.Errorf("cancellation route = %q, want %q", route.Screen, ScreenMain)
+	}
+}
+
+func TestInstallScreenElevationFailureStillRoutesToResult(t *testing.T) {
+	screen := NewInstallScreen(InstallRequest{}, &fakeSessionRunner{events: make(chan InstallEvent)}, fakeElevation{err: context.DeadlineExceeded})
+
+	updated, startCommand := screen.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, routeCommand := installScreen(t, updated).Update(commandMessage(t, startCommand))
+	route, ok := commandMessage(t, routeCommand).(ChangeScreenMsg)
+	if !ok {
+		t.Fatalf("failure route = %T, want ChangeScreenMsg", commandMessage(t, routeCommand))
+	}
+	if route.Screen != ScreenResult {
+		t.Errorf("failure route = %q, want %q", route.Screen, ScreenResult)
+	}
+}
+
+func TestInstallScreenTerminalRestoreFailureQuitsWithoutRenderingAResult(t *testing.T) {
+	screen := NewInstallScreen(InstallRequest{}, &fakeSessionRunner{events: make(chan InstallEvent)}, fakeElevation{err: TerminalRestoreError{Err: context.DeadlineExceeded}})
+
+	updated, startCommand := screen.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, quitCommand := installScreen(t, updated).Update(commandMessage(t, startCommand))
+	if _, ok := commandMessage(t, quitCommand).(tea.QuitMsg); !ok {
+		t.Errorf("terminal restore failure command = %T, want tea.QuitMsg", commandMessage(t, quitCommand))
+	}
+}
+
+func TestInstallScreenCarriesHumanModuleNameIntoResultRows(t *testing.T) {
+	screen := NewInstallScreen(InstallRequest{}, &fakeSessionRunner{events: make(chan InstallEvent)}, fakeElevation{})
+	updated, _ := screen.Update(installEventMsg{event: InstallEvent{Kind: InstallProgressEvent, Progress: installer.ProgressEvent{ModuleID: installer.ModGit, ModuleName: "Git Setup", Status: installer.StatusFailed}}})
+	result := commandMessage(t, installScreen(t, updated).changeToResult(nil)).(ChangeScreenMsg).Payload.(InstallResult)
+
+	if got, want := result.Rows[0].ModuleName, "Git Setup"; got != want {
+		t.Errorf("result module name = %q, want %q", got, want)
+	}
+	if got, want := result.Rows[0].ModuleID, installer.ModGit; got != want {
+		t.Errorf("result module ID = %q, want %q", got, want)
+	}
+}
+
 type fakeSessionRunner struct {
 	events chan InstallEvent
 	ctx    context.Context

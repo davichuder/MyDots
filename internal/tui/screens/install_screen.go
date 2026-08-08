@@ -3,6 +3,7 @@ package screens
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"sort"
 	"strings"
@@ -58,6 +59,13 @@ func (screen InstallScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			screen.completed = true
 			screen.finishSession()
+			if errors.Is(msg.err, context.Canceled) {
+				return screen, changeScreen(ScreenMain, nil)
+			}
+			var terminalRestoreErr TerminalRestoreError
+			if errors.As(msg.err, &terminalRestoreErr) {
+				return screen, tea.Quit
+			}
 			return screen, screen.changeToResult(msg.err)
 		}
 		if screen.cancelled {
@@ -120,8 +128,9 @@ type InstallResult struct {
 
 // InstallResultRow is one final module state supplied to the result screen.
 type InstallResultRow struct {
-	ModuleID installer.ModuleID
-	Status   installer.InstallStatus
+	ModuleID   installer.ModuleID
+	ModuleName string
+	Status     installer.InstallStatus
 }
 
 func (screen InstallScreen) startInstall() tea.Cmd {
@@ -178,7 +187,7 @@ func (screen InstallScreen) currentReference() string {
 func (screen InstallScreen) changeToResult(err error) tea.Cmd {
 	rows := make([]InstallResultRow, 0, len(screen.rows))
 	for moduleID, row := range screen.rows {
-		rows = append(rows, InstallResultRow{ModuleID: moduleID, Status: installer.InstallStatus(row.Status)})
+		rows = append(rows, InstallResultRow{ModuleID: moduleID, ModuleName: row.Name, Status: installer.InstallStatus(row.Status)})
 	}
 	sort.Slice(rows, func(left, right int) bool { return rows[left].ModuleID < rows[right].ModuleID })
 	return changeScreen(ScreenResult, InstallResult{Rows: rows, Cancelled: screen.cancelled, Err: err})
