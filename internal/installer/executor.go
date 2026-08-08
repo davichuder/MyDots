@@ -30,6 +30,9 @@ func Run(plan []Module, ctx InstallContext, ch chan ProgressEvent) {
 	failedIDs := map[ModuleID]bool{}
 
 	for _, mod := range plan {
+		if ctx.Cancel != nil && ctx.Cancel.Err() != nil {
+			return
+		}
 		if err := runOne(mod, ctx, ch, failedIDs); err != nil {
 			// Only critical modules return a non-nil error.
 			return

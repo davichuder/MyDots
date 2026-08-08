@@ -24,6 +24,7 @@ const (
 	ScreenConfig    Screen = "config"
 	ScreenMain      Screen = "main"
 	ScreenInstall   Screen = "install"
+	ScreenResult    Screen = "result"
 	ScreenBackup    Screen = "backup"
 	ScreenReference Screen = "reference"
 )

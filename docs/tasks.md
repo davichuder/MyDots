@@ -625,7 +625,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-089** Write failing tests for `install_screen.go` using direct model manipulation:
+- [x] **T-089** Write failing tests for `install_screen.go` using direct model manipulation:
   - Pressing `?` sets `cheatsheetVisible = true`
   - Pressing `?` again sets `cheatsheetVisible = false`
   - Pressing `q` calls `cancelFn()`
@@ -637,7 +637,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-090** Implement `install_screen.go` and `waitForProgress()` (FR-10, FR-12)
+- [x] **T-090** Implement `install_screen.go` and `waitForProgress()` (FR-10, FR-12)
 
 **[RED]**
 
