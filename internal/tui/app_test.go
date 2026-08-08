@@ -9,10 +9,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/davichuder/MyDots/internal/config"
@@ -183,11 +185,12 @@ func TestProgramMainMenuGolden(t *testing.T) {
 	}), "\x1b[B\x1b[B\x1b[B\x1b[B\r")
 
 	const goldenPath = "testdata/app/main_menu_program.golden"
+	frame := serializeTerminalFrame(canonicalTerminalFrame(output, 80, 24), 80, 24)
 	if *updateProgramGolden {
 		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
 			t.Fatalf("create golden directory: %v", err)
 		}
-		if err := os.WriteFile(goldenPath, []byte(output), 0o644); err != nil {
+		if err := os.WriteFile(goldenPath, []byte(frame), 0o644); err != nil {
 			t.Fatalf("update golden: %v", err)
 		}
 	}
@@ -195,8 +198,36 @@ func TestProgramMainMenuGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read program golden: %v", err)
 	}
-	if output != string(want) {
-		t.Errorf("program output = %q, want golden %q", output, want)
+	if frame != string(want) {
+		t.Errorf("program frame = %q, want golden %q", frame, want)
+	}
+}
+
+func TestCanonicalTerminalFrameNormalizesEquivalentCursorMotion(t *testing.T) {
+	const width, height = 40, 2
+	const windowsRenderer = "\x1b[26CMyDots\n\x1b[4DConfig"
+	const linuxRenderer = "\x1b[26CMyDots\n\r\x1b[28CConfig"
+	const want = "frame 40x2\n00:                          MyDots\n01:                            Config"
+
+	for name, output := range map[string]string{
+		"windows-relative-left": windowsRenderer,
+		"linux-absolute-right":  linuxRenderer,
+	} {
+		t.Run(name, func(t *testing.T) {
+			frame := canonicalTerminalFrame(output, width, height)
+			if got := serializeTerminalFrame(frame, width, height); got != want {
+				t.Errorf("serialized terminal frame = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestSerializeTerminalFramePreservesDimensionsAndTrimsOnlyRightPadding(t *testing.T) {
+	frame := "  x \n    "
+	const want = "frame 4x2\n00:  x\n01:"
+
+	if got := serializeTerminalFrame(frame, 4, 2); got != want {
+		t.Errorf("serializeTerminalFrame() = %q, want %q", got, want)
 	}
 }
 
@@ -247,6 +278,132 @@ func runProgram(t *testing.T, model tea.Model, input string) string {
 		t.Fatalf("run program: %v", err)
 	}
 	return output.String()
+}
+
+func canonicalTerminalFrame(output string, width, height int) string {
+	frame := make([][]rune, height)
+	for row := range frame {
+		frame[row] = make([]rune, width)
+		for column := range frame[row] {
+			frame[row][column] = ' '
+		}
+	}
+
+	row, column := 0, 0
+	for index := 0; index < len(output); {
+		if output[index] == '\x1b' && index+1 < len(output) && output[index+1] == '[' {
+			parameters, final, next, ok := parseCSI(output, index+2)
+			if ok {
+				row, column = applyCSI(frame, row, column, parameters, final)
+				index = next
+				continue
+			}
+		}
+
+		r, size := utf8.DecodeRuneInString(output[index:])
+		index += size
+		switch r {
+		case '\r':
+			column = 0
+		case '\n':
+			if row < height-1 {
+				row++
+			}
+		default:
+			if r < ' ' || row >= height || column >= width {
+				continue
+			}
+			frame[row][column] = r
+			column++
+		}
+	}
+
+	lines := make([]string, height)
+	for row := range frame {
+		lines[row] = string(frame[row])
+	}
+	return strings.Join(lines, "\n")
+}
+
+func serializeTerminalFrame(frame string, width, height int) string {
+	rows := strings.Split(frame, "\n")
+	rowNumberWidth := max(len(strconv.Itoa(height-1)), 2)
+	serialized := make([]string, 0, height+1)
+	serialized = append(serialized, fmt.Sprintf("frame %dx%d", width, height))
+	for row := 0; row < height; row++ {
+		line := ""
+		if row < len(rows) {
+			line = strings.TrimRight(rows[row], " ")
+		}
+		serialized = append(serialized, fmt.Sprintf("%0*d:%s", rowNumberWidth, row, line))
+	}
+	return strings.Join(serialized, "\n")
+}
+
+func parseCSI(output string, index int) (parameters []int, final byte, next int, ok bool) {
+	start := index
+	for index < len(output) {
+		if output[index] >= 0x40 && output[index] <= 0x7e {
+			return csiParameters(output[start:index]), output[index], index + 1, true
+		}
+		index++
+	}
+	return nil, 0, index, false
+}
+
+func csiParameters(raw string) []int {
+	if raw == "" {
+		return nil
+	}
+	parameters := make([]int, 0, strings.Count(raw, ";")+1)
+	for _, parameter := range strings.Split(raw, ";") {
+		value, err := strconv.Atoi(parameter)
+		if err != nil {
+			return nil
+		}
+		parameters = append(parameters, value)
+	}
+	return parameters
+}
+
+func applyCSI(frame [][]rune, row, column int, parameters []int, final byte) (int, int) {
+	height, width := len(frame), len(frame[0])
+	count := csiCount(parameters)
+	switch final {
+	case 'C':
+		column = min(column+count, width)
+	case 'D':
+		column = max(column-count, 0)
+	case 'G':
+		column = min(max(count-1, 0), width)
+	case 'H', 'f':
+		row = min(max(csiParameter(parameters, 0, 1)-1, 0), height-1)
+		column = min(max(csiParameter(parameters, 1, 1)-1, 0), width)
+	case 'J':
+		if csiParameter(parameters, 0, 0) == 2 {
+			for currentRow := range frame {
+				for currentColumn := range frame[currentRow] {
+					frame[currentRow][currentColumn] = ' '
+				}
+			}
+		}
+	case 'K':
+		for currentColumn := column; currentColumn < width; currentColumn++ {
+			frame[row][currentColumn] = ' '
+		}
+	}
+	return row, column
+}
+
+func csiCount(parameters []int) int {
+	return csiParameter(parameters, 0, 1)
+}
+
+func csiParameter(parameters []int, index, fallback int) int {
+	if index >= len(parameters) || parameters[index] == 0 {
+		return fallback
+	}
+	return parameters[index]
 }
 
 func appCommandMessage(t *testing.T, command tea.Cmd) tea.Msg {
