@@ -120,7 +120,7 @@ func (store FileBackupStore) List() ([]ManagedBackup, error) {
 	}
 	backups := make([]ManagedBackup, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && validBackupTimestamp(entry.Name()) == nil && store.isComplete(filepath.Join(store.root, entry.Name())) {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && validBackupTimestamp(entry.Name()) == nil {
 			backups = append(backups, ManagedBackup{Timestamp: entry.Name(), Path: filepath.Join(store.root, entry.Name())})
 		}
 	}
@@ -148,11 +148,6 @@ func (store FileBackupStore) Delete(timestamp string) error {
 		return fmt.Errorf("backup %q quarantined for cleanup: %w", timestamp, err)
 	}
 	return nil
-}
-
-func (store FileBackupStore) isComplete(sessionRoot string) bool {
-	info, err := store.fileOps.Stat(filepath.Join(sessionRoot, ".complete"))
-	return err == nil && !info.IsDir()
 }
 
 func validBackupTimestamp(timestamp string) error {

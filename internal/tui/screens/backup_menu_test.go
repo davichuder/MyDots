@@ -226,24 +226,27 @@ func TestFileBackupStoreRollsBackPartialSessionWhenCopyFails(t *testing.T) {
 	}
 }
 
-func TestFileBackupStoreListIgnoresStagingAndIncompleteSessions(t *testing.T) {
+func TestFileBackupStoreListIncludesLegacySessionsAndIgnoresRecoveryDirectories(t *testing.T) {
 	backupRoot := t.TempDir()
-	complete := "2026-08-08T10-00-00Z"
-	incomplete := "2026-08-07T10-00-00Z"
+	legacyNewest := "2026-08-09T10-00-00Z"
+	legacyOldest := "2026-08-07T10-00-00Z"
 	staging := ".2026-08-09T10-00-00Z.staging"
-	for _, name := range []string{complete, incomplete, staging} {
+	tombstone := ".2026-08-08T10-00-00Z.deleting"
+	for _, name := range []string{legacyNewest, legacyOldest, staging, tombstone} {
 		if err := os.MkdirAll(filepath.Join(backupRoot, name), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	markBackupComplete(t, filepath.Join(backupRoot, complete))
 
 	backups, err := NewFileBackupStore(backupRoot, nil, func() string { return "unused" }).List()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(backups) != 1 || backups[0].Timestamp != complete {
-		t.Errorf("List() = %#v, want only completed backup %q", backups, complete)
+	if len(backups) != 2 {
+		t.Fatalf("List() = %#v, want two legacy backups", backups)
+	}
+	if backups[0].Timestamp != legacyNewest || backups[1].Timestamp != legacyOldest {
+		t.Errorf("List() = %#v, want legacy backups sorted newest first", backups)
 	}
 }
 
