@@ -243,6 +243,43 @@ func TestInstallScreenCancellationCancelsInFlightElevation(t *testing.T) {
 	}
 }
 
+func TestInstallScreenCancellationAfterSuccessfulElevationReturnsToMainAndStopsKeepalive(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{keyPress(tea.KeyEscape, ""), keyPress('q', "q")} {
+		t.Run(key.Key().String(), func(t *testing.T) {
+			runner := &fakeSessionRunner{events: make(chan InstallEvent)}
+			keepalive := &fakeKeepalive{}
+			elevation := &successAfterCancellationElevation{started: make(chan struct{}), release: make(chan struct{}), keepalive: keepalive}
+			screen := NewInstallScreen(InstallRequest{}, runner, elevation)
+
+			updated, command := screen.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			screen = installScreen(t, updated)
+			message := make(chan tea.Msg, 1)
+			go func() { message <- command() }()
+			<-elevation.started
+
+			updated, _ = screen.Update(key)
+			screen = installScreen(t, updated)
+			close(elevation.release)
+			started := <-message
+
+			_, routeCommand := screen.Update(started)
+			route, ok := commandMessage(t, routeCommand).(ChangeScreenMsg)
+			if !ok {
+				t.Fatalf("cancellation route = %T, want ChangeScreenMsg", commandMessage(t, routeCommand))
+			}
+			if route.Screen != ScreenMain {
+				t.Errorf("cancellation route = %q, want %q", route.Screen, ScreenMain)
+			}
+			if keepalive.stops != 1 {
+				t.Errorf("keepalive stops = %d, want 1", keepalive.stops)
+			}
+			if runner.starts != 0 {
+				t.Errorf("runner starts = %d, want 0 after acquisition cancellation", runner.starts)
+			}
+		})
+	}
+}
+
 func TestInstallScreenCancelledElevationReturnsDirectlyToMainMenu(t *testing.T) {
 	screen := NewInstallScreen(InstallRequest{}, &fakeSessionRunner{events: make(chan InstallEvent)}, fakeElevation{err: context.Canceled})
 
@@ -331,6 +368,18 @@ func (elevation *blockingElevation) Acquire(ctx context.Context) (Keepalive, err
 	elevation.acquired <- ctx
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+type successAfterCancellationElevation struct {
+	started   chan struct{}
+	release   chan struct{}
+	keepalive Keepalive
+}
+
+func (elevation *successAfterCancellationElevation) Acquire(context.Context) (Keepalive, error) {
+	close(elevation.started)
+	<-elevation.release
+	return elevation.keepalive, nil
 }
 
 func (elevation fakeElevation) Acquire(context.Context) (Keepalive, error) {

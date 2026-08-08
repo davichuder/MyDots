@@ -69,8 +69,10 @@ func (screen InstallScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return screen, screen.changeToResult(msg.err)
 		}
 		if screen.cancelled {
-			msg.keepalive.Stop()
-			return screen, nil
+			if msg.keepalive != nil {
+				msg.keepalive.Stop()
+			}
+			return screen, changeScreen(ScreenMain, nil)
 		}
 		screen.keepalive = msg.keepalive
 		screen.events = screen.runner.Start(screen.ctx, screen.request)
