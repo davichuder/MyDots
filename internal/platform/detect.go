@@ -12,8 +12,9 @@ import (
 type OS string
 
 const (
-	Darwin OS = "darwin"
-	Linux  OS = "linux"
+	Darwin  OS = "darwin"
+	Linux   OS = "linux"
+	Windows OS = "windows"
 )
 
 type Variant string

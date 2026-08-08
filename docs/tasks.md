@@ -654,14 +654,14 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-093** Write teatest integration tests for full TUI flow:
+- [x] **T-093** Write teatest integration tests for full TUI flow:
   - Program starts on Darwin: `WaitFor` until main menu text is visible in output
   - Program starts with Windows GOOS: WSL2 guide text is visible; program exits after keypress
   - Golden file: main menu full render output from teatest
 
 **[GREEN]**
 
-- [ ] **T-094** Implement `app.go` root model, `preflight.go`, and `reference_menu.go` (FR-11)
+- [x] **T-094** Implement `app.go` root model, `preflight.go`, and `reference_menu.go` (FR-11)
 
 **[RED]**
 

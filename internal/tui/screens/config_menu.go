@@ -25,18 +25,22 @@ type ConfigMenu struct {
 	formConfig  *config.Config
 	languages   *[]string
 	configPath  string
+	issue       error
 	fontOptions []huh.Option[config.FontChoice]
 	width       int
 	height      int
 }
 
 // NewConfigMenu creates a configuration assistant initialized with application defaults.
-func NewConfigMenu(configPath string) ConfigMenu {
+func NewConfigMenu(configPath string, issues ...ConfigIssue) ConfigMenu {
 	cfg := config.DefaultConfig()
 	menu := ConfigMenu{
 		config:      cfg,
 		configPath:  configPath,
 		fontOptions: configMenuFontOptions,
+	}
+	if len(issues) > 0 {
+		menu.issue = issues[0].Err
 	}
 	menu.form = menu.newForm()
 	return menu
@@ -165,7 +169,11 @@ func (menu ConfigMenu) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (menu ConfigMenu) View() tea.View {
-	return tea.NewView(ansi.Strip(menu.form.View()))
+	view := ansi.Strip(menu.form.View())
+	if menu.issue != nil {
+		view += "\nError: " + menu.issue.Error() + "\n"
+	}
+	return tea.NewView(view)
 }
 
 func (menu ConfigMenu) validate() error {
