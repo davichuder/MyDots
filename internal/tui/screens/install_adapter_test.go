@@ -64,6 +64,36 @@ func TestModuleSessionRunnerPreservesInstallerRunSemantics(t *testing.T) {
 	}
 }
 
+func TestModuleSessionRunnerRendersModuleNameWhileRetainingModuleID(t *testing.T) {
+	module := &fakeModule{id: installer.ModGit, name: "Git Setup"}
+	runner := NewModuleSessionRunner(func(InstallRequest) []installer.Module {
+		return []installer.Module{module}
+	})
+
+	var progress installer.ProgressEvent
+	for event := range runner.Start(context.Background(), InstallRequest{Config: config.DefaultConfig()}) {
+		if event.Kind == InstallProgressEvent && event.Progress.Status == installer.StatusInstalled {
+			progress = event.Progress
+		}
+	}
+	if progress.ModuleID != installer.ModGit {
+		t.Fatalf("progress ModuleID = %q, want %q", progress.ModuleID, installer.ModGit)
+	}
+	if progress.ModuleName != "Git Setup" {
+		t.Fatalf("progress ModuleName = %q, want Module.Name()", progress.ModuleName)
+	}
+
+	screen := NewInstallScreen(InstallRequest{}, &fakeSessionRunner{events: make(chan InstallEvent)}, fakeElevation{})
+	updated, _ := screen.Update(installEventMsg{event: InstallEvent{Kind: InstallProgressEvent, Progress: progress}})
+	view := installScreen(t, updated).View().Content
+	if !strings.Contains(view, "Git Setup ✅") {
+		t.Errorf("View() = %q, want rendered module name", view)
+	}
+	if strings.Contains(view, string(installer.ModGit)+" ✅") {
+		t.Errorf("View() = %q, must not render module ID as the module name", view)
+	}
+}
+
 func TestModuleSessionRunnerCriticalFailureRendersCriticalResult(t *testing.T) {
 	criticalErr := errors.New("critical install failure")
 	runner := NewModuleSessionRunner(func(InstallRequest) []installer.Module {

@@ -1,3 +1,4 @@
+// Package screens provides Bubble Tea models for interactive TUI workflows.
 package screens
 
 import (
@@ -145,7 +146,11 @@ func (screen *InstallScreen) applyEvent(event InstallEvent) {
 		screen.logs.Append(event.LogLine)
 	}
 	if event.Progress.ModuleID != "" {
-		row := components.NewProgressRow(string(event.Progress.ModuleID), string(event.Progress.Status))
+		name := event.Progress.ModuleName
+		if name == "" {
+			name = string(event.Progress.ModuleID)
+		}
+		row := components.NewProgressRow(name, string(event.Progress.Status))
 		screen.rows[event.Progress.ModuleID] = row
 		if event.Progress.Status == "running" {
 			screen.currentModule = event.Progress.ModuleID

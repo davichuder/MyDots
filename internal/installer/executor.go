@@ -5,10 +5,11 @@ import "github.com/davichuder/MyDots/internal/installer/runner"
 // ProgressEvent is sent through the install channel to report module progress.
 // The TUI install screen reads these events to update the progress display.
 type ProgressEvent struct {
-	ModuleID ModuleID
-	Status   InstallStatus
-	LogLine  string
-	Err      error
+	ModuleID   ModuleID
+	ModuleName string
+	Status     InstallStatus
+	LogLine    string
+	Err        error
 }
 
 // Run executes the install plan, sending progress events to ch for each module.
@@ -53,7 +54,7 @@ func runOne(mod Module, ctx InstallContext, ch chan ProgressEvent, failedIDs map
 	// that C (which depends on B) is also skipped.
 	for _, dep := range mod.Dependencies() {
 		if failedIDs[dep] {
-			ch <- ProgressEvent{ModuleID: mod.ID(), Status: StatusSkippedDependencyFailed}
+			ch <- ProgressEvent{ModuleID: mod.ID(), ModuleName: mod.Name(), Status: StatusSkippedDependencyFailed}
 			failedIDs[mod.ID()] = true
 			return nil
 		}
@@ -71,21 +72,21 @@ func runOne(mod Module, ctx InstallContext, ch chan ProgressEvent, failedIDs map
 		}
 	}
 	if installed {
-		ch <- ProgressEvent{ModuleID: mod.ID(), Status: StatusSkipped}
+		ch <- ProgressEvent{ModuleID: mod.ID(), ModuleName: mod.Name(), Status: StatusSkipped}
 		return nil
 	}
 
 	// Install.
-	ch <- ProgressEvent{ModuleID: mod.ID(), Status: "running"}
+	ch <- ProgressEvent{ModuleID: mod.ID(), ModuleName: mod.Name(), Status: "running"}
 	if err := mod.Install(ctx); err != nil {
 		failedIDs[mod.ID()] = true
-		ch <- ProgressEvent{ModuleID: mod.ID(), Status: StatusFailed, Err: err}
+		ch <- ProgressEvent{ModuleID: mod.ID(), ModuleName: mod.Name(), Status: StatusFailed, Err: err}
 		if mod.Criticality() == Critical {
 			return err
 		}
 		return nil
 	}
 
-	ch <- ProgressEvent{ModuleID: mod.ID(), Status: StatusInstalled}
+	ch <- ProgressEvent{ModuleID: mod.ID(), ModuleName: mod.Name(), Status: StatusInstalled}
 	return nil
 }

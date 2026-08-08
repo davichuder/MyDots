@@ -135,7 +135,7 @@ func TestConfigMenuPersistsChangedChoicesThroughHuhLifecycle(t *testing.T) {
 			for _, character := range "https://example.com/dotfiles" {
 				menu = updateConfigMenu(t, menu, tea.KeyPressMsg(tea.Key{Code: character, Text: string(character)}))
 			}
-			menu, command := submitConfigMenuStep(t, menu)
+			_, command := submitConfigMenuStep(t, menu)
 
 			if message := commandMessage(t, command); message != (ChangeScreenMsg{Screen: ScreenMain}) {
 				t.Fatalf("save command message = %#v, want ChangeScreenMsg for the main menu", message)

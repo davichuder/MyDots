@@ -87,8 +87,7 @@ func TestInstallScreenInitAndInitialSizeStartOneSession(t *testing.T) {
 	}
 	updated, command := screen.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	screen = installScreen(t, updated)
-	updated, _ = screen.Update(commandMessage(t, command))
-	screen = installScreen(t, updated)
+	_, _ = screen.Update(commandMessage(t, command))
 
 	if elevation.calls != 1 {
 		t.Errorf("elevation acquisitions = %d, want 1", elevation.calls)

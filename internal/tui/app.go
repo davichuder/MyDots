@@ -1,3 +1,4 @@
+// Package tui provides the interactive MyDots terminal application.
 package tui
 
 import (

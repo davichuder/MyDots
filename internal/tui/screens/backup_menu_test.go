@@ -109,7 +109,7 @@ func TestBackupMenuConfirmedDeletionRemovesOnlySelectedTimestamp(t *testing.T) {
 
 	updated, command = menu.Update(keyPress('y', "y"))
 	menu = backupMenu(t, updated)
-	menu = applyBackupMessage(t, menu, commandMessage(t, command))
+	applyBackupMessage(t, menu, commandMessage(t, command))
 
 	if _, err := os.Stat(filepath.Join(backupRoot, selected)); !os.IsNotExist(err) {
 		t.Errorf("selected backup stat error = %v, want not exist", err)

@@ -176,10 +176,6 @@ func (menu ConfigMenu) View() tea.View {
 	return tea.NewView(view)
 }
 
-func (menu ConfigMenu) validate() error {
-	return config.Validate(menu.config)
-}
-
 func (menu ConfigMenu) saveAndReturn() tea.Cmd {
 	return func() tea.Msg {
 		cfg := *menu.formConfig

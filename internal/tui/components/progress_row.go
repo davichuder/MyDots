@@ -1,3 +1,4 @@
+// Package components provides reusable TUI rendering models.
 package components
 
 import "strings"
