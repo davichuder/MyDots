@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,7 @@ func TestBackupMenuCreatesAllPreResolvedPathsAndListsPriorSessions(t *testing.T)
 	if err := os.MkdirAll(filepath.Join(backupRoot, priorTimestamp), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	markBackupComplete(t, filepath.Join(backupRoot, priorTimestamp))
 	store := NewFileBackupStore(backupRoot, []ManagedPath{
 		{Source: configFile, RelativeDestination: filepath.Join(".config", "mydots", "settings.toml")},
 		{Source: configDir, RelativeDestination: filepath.Join(".config", "nvim")},
@@ -47,6 +49,11 @@ func TestBackupMenuCreatesAllPreResolvedPathsAndListsPriorSessions(t *testing.T)
 	menu = applyBackupMessage(t, menu, commandMessage(t, menu.Init()))
 
 	updated, command := menu.Update(keyPress('c', "c"))
+	menu = backupMenu(t, updated)
+	if command != nil {
+		t.Fatal("create request must wait for confirmation")
+	}
+	updated, command = menu.Update(keyPress('y', "y"))
 	menu = backupMenu(t, updated)
 	menu = applyBackupMessage(t, menu, commandMessage(t, command))
 
@@ -86,6 +93,7 @@ func TestBackupMenuConfirmedDeletionRemovesOnlySelectedTimestamp(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(backupRoot, timestamp), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		markBackupComplete(t, filepath.Join(backupRoot, timestamp))
 	}
 	menu := NewBackupMenu(NewFileBackupStore(backupRoot, nil, func() string { return "unused" }))
 	menu = applyBackupMessage(t, menu, commandMessage(t, menu.Init()))
@@ -108,6 +116,36 @@ func TestBackupMenuConfirmedDeletionRemovesOnlySelectedTimestamp(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(backupRoot, remaining)); err != nil {
 		t.Errorf("unselected backup stat error = %v, want it preserved", err)
+	}
+}
+
+func TestBackupMenuCreateRequiresConfirmationAndShowsSuccess(t *testing.T) {
+	backupRoot := t.TempDir()
+	source := filepath.Join(t.TempDir(), "settings.toml")
+	if err := os.WriteFile(source, []byte("safe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	timestamp := "2026-08-09T10-00-00Z"
+	menu := NewBackupMenu(NewFileBackupStore(backupRoot, []ManagedPath{{Source: source, RelativeDestination: "settings.toml"}}, func() string { return timestamp }))
+	menu = applyBackupMessage(t, menu, commandMessage(t, menu.Init()))
+
+	updated, command := menu.Update(keyPress('c', "c"))
+	menu = backupMenu(t, updated)
+	if command != nil {
+		t.Fatal("create request must wait for confirmation")
+	}
+	if !strings.Contains(menu.View().Content, "Create backup now? (y/n)") {
+		t.Fatalf("View() = %q, want create confirmation", menu.View().Content)
+	}
+	if _, err := os.Stat(filepath.Join(backupRoot, timestamp)); !os.IsNotExist(err) {
+		t.Fatalf("backup exists before confirmation: %v", err)
+	}
+
+	updated, command = menu.Update(keyPress('y', "y"))
+	menu = backupMenu(t, updated)
+	menu = applyBackupMessage(t, menu, commandMessage(t, command))
+	if !strings.Contains(menu.View().Content, "Backup created: "+timestamp) {
+		t.Errorf("View() = %q, want visible creation success", menu.View().Content)
 	}
 }
 
@@ -176,12 +214,112 @@ func TestFileBackupStoreRollsBackPartialSessionWhenCopyFails(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(backupRoot, timestamp)); !os.IsNotExist(err) {
 		t.Errorf("partial session stat error = %v, want not exist", err)
 	}
+	if _, err := os.Stat(filepath.Join(backupRoot, "."+timestamp+".staging")); !os.IsNotExist(err) {
+		t.Errorf("staging session stat error = %v, want cleanup", err)
+	}
 	backups, err := store.List()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(backups) != 0 {
 		t.Errorf("List() = %#v, want no partial session", backups)
+	}
+}
+
+func TestFileBackupStoreListIgnoresStagingAndIncompleteSessions(t *testing.T) {
+	backupRoot := t.TempDir()
+	complete := "2026-08-08T10-00-00Z"
+	incomplete := "2026-08-07T10-00-00Z"
+	staging := ".2026-08-09T10-00-00Z.staging"
+	for _, name := range []string{complete, incomplete, staging} {
+		if err := os.MkdirAll(filepath.Join(backupRoot, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	markBackupComplete(t, filepath.Join(backupRoot, complete))
+
+	backups, err := NewFileBackupStore(backupRoot, nil, func() string { return "unused" }).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 || backups[0].Timestamp != complete {
+		t.Errorf("List() = %#v, want only completed backup %q", backups, complete)
+	}
+}
+
+func TestFileBackupStoreDeleteQuarantinesBeforeRemoval(t *testing.T) {
+	backupRoot := t.TempDir()
+	timestamp := "2026-08-08T10-00-00Z"
+	original := filepath.Join(backupRoot, timestamp)
+	if err := os.MkdirAll(original, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	markBackupComplete(t, original)
+
+	removeErr := errors.New("remove failed")
+	store := newFileBackupStoreWithFileOps(backupRoot, nil, func() string { return "unused" }, failingBackupFileOps{fileOps: osBackupFileOps{}, removeAllErr: removeErr})
+	err := store.Delete(timestamp)
+	if !errors.Is(err, removeErr) {
+		t.Fatalf("Delete() error = %v, want removal failure", err)
+	}
+	if _, err := os.Stat(original); !os.IsNotExist(err) {
+		t.Errorf("original session stat error = %v, want quarantined", err)
+	}
+	if _, err := os.Stat(filepath.Join(backupRoot, "."+timestamp+".deleting")); err != nil {
+		t.Errorf("quarantine stat error = %v, want retained for safe cleanup", err)
+	}
+	backups, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 0 {
+		t.Errorf("List() = %#v, want quarantined session hidden", backups)
+	}
+}
+
+func TestFileBackupStoreDeleteRenameFailureLeavesOriginalIntact(t *testing.T) {
+	backupRoot := t.TempDir()
+	timestamp := "2026-08-08T10-00-00Z"
+	original := filepath.Join(backupRoot, timestamp)
+	if err := os.MkdirAll(original, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	markBackupComplete(t, original)
+
+	renameErr := errors.New("rename failed")
+	store := newFileBackupStoreWithFileOps(backupRoot, nil, func() string { return "unused" }, failingBackupFileOps{fileOps: osBackupFileOps{}, renameErr: renameErr})
+	if err := store.Delete(timestamp); !errors.Is(err, renameErr) {
+		t.Fatalf("Delete() error = %v, want rename failure", err)
+	}
+	if _, err := os.Stat(original); err != nil {
+		t.Errorf("original session stat error = %v, want intact", err)
+	}
+}
+
+type failingBackupFileOps struct {
+	fileOps
+	renameErr    error
+	removeAllErr error
+}
+
+func (ops failingBackupFileOps) Rename(oldpath, newpath string) error {
+	if ops.renameErr != nil {
+		return ops.renameErr
+	}
+	return ops.fileOps.Rename(oldpath, newpath)
+}
+
+func (ops failingBackupFileOps) RemoveAll(path string) error {
+	if ops.removeAllErr != nil {
+		return ops.removeAllErr
+	}
+	return ops.fileOps.RemoveAll(path)
+}
+
+func markBackupComplete(t *testing.T, sessionPath string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(sessionPath, ".complete"), nil, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

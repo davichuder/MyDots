@@ -36,10 +36,33 @@ type FileBackupStore struct {
 	root      string
 	paths     []ManagedPath
 	timestamp func() string
+	fileOps   fileOps
 }
 
 func NewFileBackupStore(root string, paths []ManagedPath, timestamp func() string) FileBackupStore {
-	return FileBackupStore{root: root, paths: append([]ManagedPath(nil), paths...), timestamp: timestamp}
+	return newFileBackupStoreWithFileOps(root, paths, timestamp, osBackupFileOps{})
+}
+
+type fileOps interface {
+	MkdirAll(path string, perm os.FileMode) error
+	Mkdir(path string, perm os.FileMode) error
+	Rename(oldpath, newpath string) error
+	RemoveAll(path string) error
+	ReadDir(name string) ([]os.DirEntry, error)
+	Stat(name string) (os.FileInfo, error)
+}
+
+type osBackupFileOps struct{}
+
+func (osBackupFileOps) MkdirAll(path string, perm os.FileMode) error { return os.MkdirAll(path, perm) }
+func (osBackupFileOps) Mkdir(path string, perm os.FileMode) error    { return os.Mkdir(path, perm) }
+func (osBackupFileOps) Rename(oldpath, newpath string) error         { return os.Rename(oldpath, newpath) }
+func (osBackupFileOps) RemoveAll(path string) error                  { return os.RemoveAll(path) }
+func (osBackupFileOps) ReadDir(name string) ([]os.DirEntry, error)   { return os.ReadDir(name) }
+func (osBackupFileOps) Stat(name string) (os.FileInfo, error)        { return os.Stat(name) }
+
+func newFileBackupStoreWithFileOps(root string, paths []ManagedPath, timestamp func() string, fileOps fileOps) FileBackupStore {
+	return FileBackupStore{root: root, paths: append([]ManagedPath(nil), paths...), timestamp: timestamp, fileOps: fileOps}
 }
 
 func (store FileBackupStore) Create() (ManagedBackup, error) {
@@ -51,33 +74,44 @@ func (store FileBackupStore) Create() (ManagedBackup, error) {
 		return ManagedBackup{}, err
 	}
 	sessionRoot := filepath.Join(store.root, timestamp)
+	stagingRoot := filepath.Join(store.root, "."+timestamp+".staging")
 	destinations := make([]string, len(store.paths))
 	for index, path := range store.paths {
-		destination, err := backupDestination(sessionRoot, path.RelativeDestination)
+		destination, err := backupDestination(stagingRoot, path.RelativeDestination)
 		if err != nil {
 			return ManagedBackup{}, err
 		}
 		destinations[index] = destination
 	}
-	if err := os.MkdirAll(store.root, 0o755); err != nil {
+	if err := store.fileOps.MkdirAll(store.root, 0o755); err != nil {
 		return ManagedBackup{}, err
 	}
-	if err := os.Mkdir(sessionRoot, 0o755); err != nil {
+	if err := store.fileOps.Mkdir(stagingRoot, 0o755); err != nil {
 		return ManagedBackup{}, err
 	}
 	for index, path := range store.paths {
 		if err := copyManagedPath(path.Source, destinations[index]); err != nil {
-			if removeErr := os.RemoveAll(sessionRoot); removeErr != nil {
+			if removeErr := store.fileOps.RemoveAll(stagingRoot); removeErr != nil {
 				return ManagedBackup{}, fmt.Errorf("copy managed path: %w; remove partial backup: %v", err, removeErr)
 			}
 			return ManagedBackup{}, err
 		}
 	}
+	if err := os.WriteFile(filepath.Join(stagingRoot, ".complete"), nil, 0o644); err != nil {
+		_ = store.fileOps.RemoveAll(stagingRoot)
+		return ManagedBackup{}, err
+	}
+	if err := store.fileOps.Rename(stagingRoot, sessionRoot); err != nil {
+		if removeErr := store.fileOps.RemoveAll(stagingRoot); removeErr != nil {
+			return ManagedBackup{}, fmt.Errorf("publish backup: %w; remove staging backup: %v", err, removeErr)
+		}
+		return ManagedBackup{}, err
+	}
 	return ManagedBackup{Timestamp: timestamp, Path: sessionRoot}, nil
 }
 
 func (store FileBackupStore) List() ([]ManagedBackup, error) {
-	entries, err := os.ReadDir(store.root)
+	entries, err := store.fileOps.ReadDir(store.root)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []ManagedBackup{}, nil
@@ -86,7 +120,7 @@ func (store FileBackupStore) List() ([]ManagedBackup, error) {
 	}
 	backups := make([]ManagedBackup, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && validBackupTimestamp(entry.Name()) == nil && store.isComplete(filepath.Join(store.root, entry.Name())) {
 			backups = append(backups, ManagedBackup{Timestamp: entry.Name(), Path: filepath.Join(store.root, entry.Name())})
 		}
 	}
@@ -99,14 +133,26 @@ func (store FileBackupStore) Delete(timestamp string) error {
 		return err
 	}
 	path := filepath.Join(store.root, timestamp)
-	info, err := os.Stat(path)
+	info, err := store.fileOps.Stat(path)
 	if err != nil {
 		return err
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("backup %q is not a directory", timestamp)
 	}
-	return os.RemoveAll(path)
+	tombstone := filepath.Join(store.root, "."+timestamp+".deleting")
+	if err := store.fileOps.Rename(path, tombstone); err != nil {
+		return fmt.Errorf("quarantine backup %q: %w", timestamp, err)
+	}
+	if err := store.fileOps.RemoveAll(tombstone); err != nil {
+		return fmt.Errorf("backup %q quarantined for cleanup: %w", timestamp, err)
+	}
+	return nil
+}
+
+func (store FileBackupStore) isComplete(sessionRoot string) bool {
+	info, err := store.fileOps.Stat(filepath.Join(sessionRoot, ".complete"))
+	return err == nil && !info.IsDir()
 }
 
 func validBackupTimestamp(timestamp string) error {
@@ -186,13 +232,15 @@ func copyBackupFile(source, destination string, mode os.FileMode) error {
 
 // BackupMenu creates, lists, and deletes only caller-managed backup sessions.
 type BackupMenu struct {
-	store      BackupStore
-	backups    []ManagedBackup
-	cursor     int
-	confirming string
-	err        error
-	width      int
-	height     int
+	store            BackupStore
+	backups          []ManagedBackup
+	cursor           int
+	confirming       string
+	confirmingCreate bool
+	err              error
+	notice           string
+	width            int
+	height           int
 }
 
 func NewBackupMenu(store BackupStore) BackupMenu {
@@ -207,6 +255,7 @@ func (menu BackupMenu) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		menu.width, menu.height = message.Width, message.Height
 	case backupsLoadedMsg:
 		menu.backups, menu.err = message.backups, message.err
+		menu.notice = message.notice
 		if menu.cursor >= len(menu.backups) {
 			menu.cursor = max(len(menu.backups)-1, 0)
 		}
@@ -217,6 +266,16 @@ func (menu BackupMenu) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (menu BackupMenu) key(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if menu.confirmingCreate {
+		switch message.Key().Text {
+		case "y":
+			menu.confirmingCreate = false
+			return menu, menu.create()
+		case "n":
+			menu.confirmingCreate = false
+		}
+		return menu, nil
+	}
 	if menu.confirming != "" {
 		switch message.Key().Text {
 		case "y":
@@ -242,7 +301,8 @@ func (menu BackupMenu) key(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch message.Key().Text {
 	case "c":
-		return menu, menu.create()
+		menu.notice = ""
+		menu.confirmingCreate = true
 	case "d":
 		if len(menu.backups) > 0 {
 			menu.confirming = menu.backups[menu.cursor].Timestamp
@@ -258,18 +318,25 @@ func (menu BackupMenu) View() tea.View {
 	content.WriteString("Backups\n\n")
 	if menu.err != nil {
 		content.WriteString("Error: " + menu.err.Error() + "\n")
-	} else if len(menu.backups) == 0 {
-		content.WriteString("No managed backups yet.\n")
 	} else {
-		for index, backup := range menu.backups {
-			prefix := "  "
-			if index == menu.cursor {
-				prefix = "> "
+		if menu.notice != "" {
+			content.WriteString(menu.notice + "\n")
+		}
+		if len(menu.backups) == 0 {
+			content.WriteString("No managed backups yet.\n")
+		} else {
+			for index, backup := range menu.backups {
+				prefix := "  "
+				if index == menu.cursor {
+					prefix = "> "
+				}
+				content.WriteString(prefix + backup.Timestamp + "\n")
 			}
-			content.WriteString(prefix + backup.Timestamp + "\n")
 		}
 	}
-	if menu.confirming != "" {
+	if menu.confirmingCreate {
+		content.WriteString("\nCreate backup now? (y/n)\n")
+	} else if menu.confirming != "" {
 		content.WriteString("\nDelete backup " + menu.confirming + "? (y/n)\n")
 	} else {
 		content.WriteString("\nc create • d delete • q/esc return\n")
@@ -280,6 +347,7 @@ func (menu BackupMenu) View() tea.View {
 type backupsLoadedMsg struct {
 	backups []ManagedBackup
 	err     error
+	notice  string
 }
 
 func (menu BackupMenu) load() tea.Cmd {
@@ -297,11 +365,12 @@ func (menu BackupMenu) create() tea.Cmd {
 		if menu.store == nil {
 			return backupsLoadedMsg{err: fmt.Errorf("backup store is unavailable")}
 		}
-		if _, err := menu.store.Create(); err != nil {
+		backup, err := menu.store.Create()
+		if err != nil {
 			return backupsLoadedMsg{err: err}
 		}
 		backups, err := menu.store.List()
-		return backupsLoadedMsg{backups: backups, err: err}
+		return backupsLoadedMsg{backups: backups, err: err, notice: "Backup created: " + backup.Timestamp}
 	}
 }
 
