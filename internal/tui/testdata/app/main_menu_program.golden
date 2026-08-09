@@ -1,25 +1,16 @@
-frame 80x24
-00:
-01:
-02:
-03:
-04:
-05:
-06:
-07:                          MyDots
-08:
-09:                            Config
-10:                            Install
-11:                            Backup
-12:                            Reference
-13:                          > Quit
-14:
-15:                          ↑/↓ navigate • enter select
-16:
-17:
-18:
-19:
-20:
-21:
-22:
-23:
+
+
+
+
+
+
+
+                          MyDots
+
+                            Config
+                            Install
+                            Backup
+                            Reference
+                          > Quit
+
+                          ↑/↓ navigate • enter select
