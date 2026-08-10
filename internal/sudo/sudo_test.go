@@ -89,19 +89,29 @@ func TestDefaultKeepaliveInterval(t *testing.T) {
 
 func TestStartKeepalive_OutputToDiscard(t *testing.T) {
 	var capturedStdout, capturedStderr io.Writer
+	called := make(chan struct{}, 1)
 	runCmd = func(cmd *exec.Cmd) error {
 		capturedStdout = cmd.Stdout
 		capturedStderr = cmd.Stderr
+		called <- struct{}{}
 		return nil
 	}
 	keepaliveInterval = 10 * time.Millisecond
 	defer restoreGlobals()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	StartKeepalive(ctx)
+	defer cancel()
+	handle, err := StartKeepalive(ctx)
+	if err != nil {
+		t.Fatalf("StartKeepalive returned error: %v", err)
+	}
+	defer handle.Stop()
 
-	time.Sleep(15 * time.Millisecond)
-	cancel()
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("keepalive did not execute sudo validation")
+	}
 
 	if capturedStdout != io.Discard {
 		t.Error("sudo stdout should go to io.Discard")
@@ -125,7 +135,10 @@ func TestStartKeepalive_StopsOnCancel(t *testing.T) {
 	defer restoreGlobals()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	StartKeepalive(ctx)
+	handle, err := StartKeepalive(ctx)
+	if err != nil {
+		t.Fatalf("StartKeepalive returned error: %v", err)
+	}
 
 	time.Sleep(25 * time.Millisecond)
 
@@ -134,6 +147,7 @@ func TestStartKeepalive_StopsOnCancel(t *testing.T) {
 	mu.Unlock()
 
 	cancel()
+	handle.Stop()
 
 	// Wait long enough that an alive goroutine would tick several times
 	time.Sleep(50 * time.Millisecond)
@@ -165,7 +179,10 @@ func TestStartKeepalive_AlreadyCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled before StartKeepalive
 
-	StartKeepalive(ctx)
+	handle, err := StartKeepalive(ctx)
+	if !errors.Is(err, context.Canceled) || handle != nil {
+		t.Fatalf("StartKeepalive() = (%v, %v), want (nil, context.Canceled)", handle, err)
+	}
 
 	time.Sleep(30 * time.Millisecond)
 
@@ -194,8 +211,14 @@ func TestStartKeepalive_MultipleCalls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	StartKeepalive(ctx)
-	StartKeepalive(ctx)
+	first, err := StartKeepalive(ctx)
+	if err != nil {
+		t.Fatalf("first StartKeepalive returned error: %v", err)
+	}
+	second, err := StartKeepalive(ctx)
+	if err != nil {
+		t.Fatalf("second StartKeepalive returned error: %v", err)
+	}
 
 	time.Sleep(35 * time.Millisecond)
 
@@ -208,4 +231,7 @@ func TestStartKeepalive_MultipleCalls(t *testing.T) {
 	if count < 2 {
 		t.Errorf("expected at least 2 sudo calls across 2 goroutines, got: %d", count)
 	}
+	cancel()
+	first.Stop()
+	second.Stop()
 }

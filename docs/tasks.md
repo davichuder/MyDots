@@ -688,7 +688,7 @@ All 48 tools: homebrew, zsh, oh-my-zsh, zellij, git, git-credential-oauth, lazyg
 
 **[RED]**
 
-- [ ] **T-098** Write failing tests for entry point logic.
+- [x] **T-098** Write failing tests for entry point logic.
   - Extract all flag and routing logic to `run(args []string, goos string) int` — `main()` calls this and passes `os.Args` and `runtime.GOOS`. Tests call `run()` directly without spawning a process or calling `os.Exit`.
   - `--version`: returns exit code 0 and `buildVersion` appears in output
   - Windows GOOS: `renderWSL2Guide()` is called; return value is 0
@@ -700,8 +700,8 @@ All 48 tools: homebrew, zsh, oh-my-zsh, zellij, git, git-credential-oauth, lazyg
 
 **[GREEN]**
 
-- [ ] **T-099** Implement `run(args []string, goos string) int`, `main()` as a thin wrapper, `renderWSL2Guide()`, `runTUI()`, `runUnattended()`, `runWithDefaults()` (design.md §13, FR-22, SC-12, SC-13)
-- [ ] **T-100** In `runUnattended()` and `runWithDefaults()`: call `sudo.RequestElevation()` and `sudo.StartKeepalive(ctx)` before pipeline starts
+- [x] **T-099** Implement `run(args []string, goos string) int`, `main()` as a thin wrapper, `renderWSL2Guide()`, `runTUI()`, `runUnattended()`, `runWithDefaults()` (design.md §13, FR-22, SC-12, SC-13)
+- [x] **T-100** In `runUnattended()` and `runWithDefaults()`: call `sudo.RequestElevation()` and `sudo.StartKeepalive(ctx)` before pipeline starts
 
 ---
 
