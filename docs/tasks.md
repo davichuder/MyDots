@@ -572,7 +572,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-081** Write failing tests for `LogPane`:
+- [x] **T-081** Write failing tests for `LogPane`:
   - Appending a line increases content by exactly one line
   - After 200 lines, oldest lines are dropped (ring buffer); content length stays at 200
   - Appending empty string is a no-op (content unchanged)
@@ -580,18 +580,18 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-082** Implement `LogPane` with `LogPaneMaxLines = 200` constant
+- [x] **T-082** Implement `LogPane` with `LogPaneMaxLines = 200` constant
 
 **[RED]**
 
-- [ ] **T-083** Write failing tests for `ProgressRow`:
+- [x] **T-083** Write failing tests for `ProgressRow`:
   - Each `InstallStatus` value renders the correct icon (`✅`, `❌`, `⏭`, `—`, spinner for running)
   - Module name is visible in the rendered output
   - Golden file: rendered row for each distinct status value
 
 **[GREEN]**
 
-- [ ] **T-084** Implement `ProgressRow`
+- [x] **T-084** Implement `ProgressRow`
 
 ---
 
@@ -599,7 +599,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[RED]**
 
-- [ ] **T-085** Write failing tests for `main_menu.go` using direct model state manipulation:
+- [x] **T-085** Write failing tests for `main_menu.go` using direct model state manipulation:
   - All 5 menu items are present in `View()` output
   - Selecting "Quit" returns `tea.Quit` command
   - Selecting "Install" when config file is missing: model stays on main menu, error text is visible in `View()`
@@ -608,11 +608,11 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-086** Implement `main_menu.go` (SC-08)
+- [x] **T-086** Implement `main_menu.go` (SC-08)
 
 **[RED]**
 
-- [ ] **T-087** Write failing tests for `config_menu.go` using direct model manipulation:
+- [x] **T-087** Write failing tests for `config_menu.go` using direct model manipulation:
   - Step 1 presents exactly 5 font options
   - Each step pre-selects the value from `DefaultConfig()`
   - Completing all 6 steps writes `mydots-config.json` to the correct path
@@ -621,11 +621,11 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-088** Implement `config_menu.go` (FR-04)
+- [x] **T-088** Implement `config_menu.go` (FR-04)
 
 **[RED]**
 
-- [ ] **T-089** Write failing tests for `install_screen.go` using direct model manipulation:
+- [x] **T-089** Write failing tests for `install_screen.go` using direct model manipulation:
   - Pressing `?` sets `cheatsheetVisible = true`
   - Pressing `?` again sets `cheatsheetVisible = false`
   - Pressing `q` calls `cancelFn()`
@@ -637,11 +637,11 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-090** Implement `install_screen.go` and `waitForProgress()` (FR-10, FR-12)
+- [x] **T-090** Implement `install_screen.go` and `waitForProgress()` (FR-10, FR-12)
 
 **[RED]**
 
-- [ ] **T-091** Write failing tests for `result_screen.go`:
+- [x] **T-091** Write failing tests for `result_screen.go`:
   - All modules succeeded: success message with count visible
   - Some non-critical failures: warning count and failed module names visible
   - Critical failure: specific module name and failure message visible
@@ -650,29 +650,29 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 **[GREEN]**
 
-- [ ] **T-092** Implement `result_screen.go` (SCR-08, NFR-14)
+- [x] **T-092** Implement `result_screen.go` (SCR-08, NFR-14)
 
 **[RED]**
 
-- [ ] **T-093** Write teatest integration tests for full TUI flow:
+- [x] **T-093** Write teatest integration tests for full TUI flow:
   - Program starts on Darwin: `WaitFor` until main menu text is visible in output
   - Program starts with Windows GOOS: WSL2 guide text is visible; program exits after keypress
   - Golden file: main menu full render output from teatest
 
 **[GREEN]**
 
-- [ ] **T-094** Implement `app.go` root model, `preflight.go`, and `reference_menu.go` (FR-11)
+- [x] **T-094** Implement `app.go` root model, `preflight.go`, and `reference_menu.go` (FR-11)
 
 **[RED]**
 
-- [ ] **T-095** Write failing tests for `backup_menu.go`:
+- [x] **T-095** Write failing tests for `backup_menu.go`:
   - "Create backup now" triggers backup of all managed config paths
   - "Delete a backup" lists existing backups and deletes the selected one
   - Empty backup list: appropriate empty-state message in `View()`
 
 **[GREEN]**
 
-- [ ] **T-096** Implement `backup_menu.go` (FR-13)
+- [x] **T-096** Implement `backup_menu.go` (FR-13)
 
 ---
 
