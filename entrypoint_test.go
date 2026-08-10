@@ -262,6 +262,210 @@ func TestProductionPipelinePropagatesPlatformAndCriticalFailure(t *testing.T) {
 	}
 }
 
+func TestProductionPipelineReturnsFirstNonCriticalFailureAfterDrainingProgress(t *testing.T) {
+	currentPlatform := platform.Platform{OS: platform.Linux, Variant: platform.Native}
+	errFirst := errors.New("first noncritical install failed")
+	errSecond := errors.New("second noncritical install failed")
+	var nonCritical []installer.ModuleID
+	for _, module := range installer.BuildPlan(config.DefaultConfig(), currentPlatform) {
+		if module.Criticality() == installer.NonCritical {
+			nonCritical = append(nonCritical, module.ID())
+		}
+	}
+	if len(nonCritical) < 2 {
+		t.Fatalf("plan has %d noncritical modules, want at least 2", len(nonCritical))
+	}
+	err := runProductionPipelineWith(context.Background(), config.DefaultConfig(), "2026-08-10T11-00-00Z", currentPlatform, func(plan []installer.Module, _ installer.InstallContext, progress chan installer.ProgressEvent) {
+		progress <- installer.ProgressEvent{ModuleID: nonCritical[0], Err: errFirst}
+		progress <- installer.ProgressEvent{ModuleID: nonCritical[1], Err: errSecond}
+		close(progress)
+	})
+	if !errors.Is(err, errFirst) {
+		t.Fatalf("pipeline error = %v, want first noncritical error %v", err, errFirst)
+	}
+}
+
+func TestRunPrivilegedCancelsPipelineAndFailsWhenKeepaliveBecomesUnhealthy(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	recorder := &routeRecorder{}
+	dependencies := newRouteDependencies(t.TempDir(), &stdout, &stderr, recorder)
+	keepalive := &healthKeepalive{done: make(chan struct{}), err: errors.New("sudo refresh failed")}
+	pipelineStarted := make(chan struct{})
+	dependencies.startKeepalive = func(context.Context) (keepaliveHandle, error) {
+		recorder.record("keepalive")
+		return keepalive, nil
+	}
+	dependencies.runPipeline = func(ctx context.Context, _ config.Config, _ string, _ platform.Platform) error {
+		recorder.record("pipeline")
+		close(pipelineStarted)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	withTestEntrypointDependencies(t, dependencies)
+
+	finished := make(chan int, 1)
+	go func() { finished <- run([]string{"mydots", "--unattended"}, "linux") }()
+	<-pipelineStarted
+	close(keepalive.done)
+	select {
+	case code := <-finished:
+		if code != 1 {
+			t.Errorf("run() = %d, want 1", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("run did not cancel the pipeline after keepalive failure")
+	}
+	if !strings.Contains(stderr.String(), "sudo refresh failed") {
+		t.Errorf("stderr = %q, want keepalive health error", stderr.String())
+	}
+	if got, want := strings.Join(recorder.calls, ","), "load,elevation,keepalive,pipeline"; got != want {
+		t.Errorf("calls = %q, want %q", got, want)
+	}
+	if !keepalive.stopped {
+		t.Error("keepalive was not stopped after the pipeline joined")
+	}
+}
+
+func TestRunPrivilegedHonorsInjectedSignalCancellation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	recorder := &routeRecorder{}
+	dependencies := newRouteDependencies(t.TempDir(), &stdout, &stderr, recorder)
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := false
+	dependencies.newContext = func() (context.Context, context.CancelFunc) {
+		return ctx, func() { stopped = true }
+	}
+	dependencies.requestElevation = func(got context.Context) error {
+		recorder.record("elevation")
+		cancel()
+		return got.Err()
+	}
+	withTestEntrypointDependencies(t, dependencies)
+
+	if code := run([]string{"mydots", "--unattended"}, "linux"); code != 1 {
+		t.Errorf("run() = %d, want 1", code)
+	}
+	if !stopped {
+		t.Error("signal context stop was not called")
+	}
+	if got, want := strings.Join(recorder.calls, ","), "load,elevation"; got != want {
+		t.Errorf("calls = %q, want %q", got, want)
+	}
+}
+
+func TestRunPrivilegedPropagatesInjectedSignalCancellationToPipelineAndKeepalive(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	recorder := &routeRecorder{}
+	dependencies := newRouteDependencies(t.TempDir(), &stdout, &stderr, recorder)
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := false
+	dependencies.newContext = func() (context.Context, context.CancelFunc) {
+		return ctx, func() { stopped = true }
+	}
+	dependencies.runPipeline = func(got context.Context, _ config.Config, _ string, _ platform.Platform) error {
+		recorder.record("pipeline")
+		cancel()
+		<-got.Done()
+		return got.Err()
+	}
+	withTestEntrypointDependencies(t, dependencies)
+
+	if code := run([]string{"mydots", "--unattended"}, "linux"); code != 1 {
+		t.Errorf("run() = %d, want 1", code)
+	}
+	if !stopped {
+		t.Error("signal context stop was not called")
+	}
+	if got, want := strings.Join(recorder.calls, ","), "load,elevation,keepalive,pipeline,shutdown"; got != want {
+		t.Errorf("calls = %q, want %q", got, want)
+	}
+}
+
+func TestRunPrivilegedReturnsShutdownTimeoutForNonCooperativePipeline(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	recorder := &routeRecorder{}
+	dependencies := newRouteDependencies(t.TempDir(), &stdout, &stderr, recorder)
+	signalContext, cancelSignal := context.WithCancel(context.Background())
+	shutdownContext, cancelShutdown := context.WithCancel(context.Background())
+	defer cancelShutdown()
+	dependencies.newContext = func() (context.Context, context.CancelFunc) {
+		return signalContext, func() {}
+	}
+	dependencies.newShutdownContext = func() (context.Context, context.CancelFunc) {
+		return shutdownContext, func() {}
+	}
+	pipelineStarted := make(chan struct{})
+	releasePipeline := make(chan struct{})
+	dependencies.runPipeline = func(context.Context, config.Config, string, platform.Platform) error {
+		recorder.record("pipeline")
+		close(pipelineStarted)
+		<-releasePipeline // Deliberately violates the cancellation contract.
+		return nil
+	}
+	withTestEntrypointDependencies(t, dependencies)
+
+	finished := make(chan int, 1)
+	go func() { finished <- run([]string{"mydots", "--unattended"}, "linux") }()
+	<-pipelineStarted
+	cancelSignal()
+	select {
+	case code := <-finished:
+		t.Fatalf("run returned %d before the injected shutdown deadline", code)
+	default:
+	}
+	cancelShutdown()
+	if code := <-finished; code != 1 {
+		t.Errorf("run() = %d, want 1", code)
+	}
+	if got := stderr.String(); got != "Error: shutdown timed out\n" {
+		t.Errorf("stderr = %q, want shutdown timeout", got)
+	}
+	close(releasePipeline)
+}
+
+func TestRunPrivilegedReturnsShutdownTimeoutWhenKeepaliveFailureCannotJoinPipeline(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	recorder := &routeRecorder{}
+	dependencies := newRouteDependencies(t.TempDir(), &stdout, &stderr, recorder)
+	shutdownContext, cancelShutdown := context.WithCancel(context.Background())
+	defer cancelShutdown()
+	dependencies.newShutdownContext = func() (context.Context, context.CancelFunc) {
+		return shutdownContext, func() {}
+	}
+	keepalive := &healthKeepalive{done: make(chan struct{}), err: errors.New("sudo refresh failed")}
+	dependencies.startKeepalive = func(context.Context) (keepaliveHandle, error) {
+		recorder.record("keepalive")
+		return keepalive, nil
+	}
+	pipelineStarted := make(chan struct{})
+	releasePipeline := make(chan struct{})
+	dependencies.runPipeline = func(context.Context, config.Config, string, platform.Platform) error {
+		recorder.record("pipeline")
+		close(pipelineStarted)
+		<-releasePipeline // Deliberately violates the cancellation contract.
+		return nil
+	}
+	withTestEntrypointDependencies(t, dependencies)
+
+	finished := make(chan int, 1)
+	go func() { finished <- run([]string{"mydots", "--unattended"}, "linux") }()
+	<-pipelineStarted
+	close(keepalive.done)
+	select {
+	case code := <-finished:
+		t.Fatalf("run returned %d before the injected shutdown deadline", code)
+	default:
+	}
+	cancelShutdown()
+	if code := <-finished; code != 1 {
+		t.Errorf("run() = %d, want 1", code)
+	}
+	if got := stderr.String(); got != "Error: shutdown timed out\n" {
+		t.Errorf("stderr = %q, want shutdown timeout", got)
+	}
+	close(releasePipeline)
+}
+
 func TestRunFailurePathsPreventLaterCallsAndJoinKeepalive(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -421,25 +625,45 @@ func newRouteDependencies(path string, stdout, stderr *bytes.Buffer, recorder *r
 			recorder.timestamp = timestamp
 			return nil
 		},
-		newContext: context.Background,
-		now:        func() time.Time { return time.Date(2026, 8, 10, 12, 0, 0, 0, time.FixedZone("non-UTC", 3600)) },
+		newContext: func() (context.Context, context.CancelFunc) { return context.Background(), func() {} },
+		newShutdownContext: func() (context.Context, context.CancelFunc) {
+			return context.Background(), func() {}
+		},
+		now: func() time.Time { return time.Date(2026, 8, 10, 12, 0, 0, 0, time.FixedZone("non-UTC", 3600)) },
 	}
 }
 
 type routeKeepalive struct{ recorder *routeRecorder }
+
+type healthKeepalive struct {
+	done    chan struct{}
+	err     error
+	stopped bool
+}
+
+func (keepalive *healthKeepalive) Stop(context.Context) error {
+	keepalive.stopped = true
+	return nil
+}
+func (keepalive *healthKeepalive) Done() <-chan struct{} { return keepalive.done }
+func (keepalive *healthKeepalive) Err() error            { return keepalive.err }
 
 type noOpTerminal struct{}
 
 func (noOpTerminal) Release() error { return nil }
 func (noOpTerminal) Restore() error { return nil }
 
-func (keepalive routeKeepalive) Stop() {
+func (keepalive routeKeepalive) Stop(context.Context) error {
 	keepalive.recorder.record("shutdown")
 	if keepalive.recorder.stopGate != nil {
 		close(keepalive.recorder.stopStarted)
 		<-keepalive.recorder.stopGate
 	}
+	return nil
 }
+
+func (keepalive routeKeepalive) Done() <-chan struct{} { return nil }
+func (keepalive routeKeepalive) Err() error            { return nil }
 
 func withTestEntrypointDependencies(t *testing.T, dependencies entrypointDependencies) {
 	t.Helper()

@@ -9,8 +9,10 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -24,24 +26,34 @@ import (
 
 const missingConfigMessage = "Error: no config found. Run 'mydots' to configure first."
 
-type keepaliveHandle interface{ Stop() }
+const productionShutdownTimeout = 5 * time.Second
+
+var errShutdownTimeout = errors.New("shutdown timed out")
+var errKeepaliveStopped = errors.New("sudo keepalive stopped unexpectedly")
+
+type keepaliveHandle interface {
+	Stop(context.Context) error
+	Done() <-chan struct{}
+	Err() error
+}
 
 type entrypointDependencies struct {
-	stdout, stderr   io.Writer
-	assets           fs.FS
-	configPath       func() string
-	loadConfig       func(string) (config.Config, error)
-	saveConfig       func(string, config.Config) error
-	defaultConfig    func() config.Config
-	validateConfig   func(config.Config) error
-	detectPlatform   func(string) (platform.Platform, error)
-	showGuide        func(fs.FS, string)
-	runTUI           func(platform.Platform) error
-	requestElevation func(context.Context) error
-	startKeepalive   func(context.Context) (keepaliveHandle, error)
-	runPipeline      func(context.Context, config.Config, string, platform.Platform) error
-	newContext       func() context.Context
-	now              func() time.Time
+	stdout, stderr     io.Writer
+	assets             fs.FS
+	configPath         func() string
+	loadConfig         func(string) (config.Config, error)
+	saveConfig         func(string, config.Config) error
+	defaultConfig      func() config.Config
+	validateConfig     func(config.Config) error
+	detectPlatform     func(string) (platform.Platform, error)
+	showGuide          func(fs.FS, string)
+	runTUI             func(platform.Platform) error
+	requestElevation   func(context.Context) error
+	startKeepalive     func(context.Context) (keepaliveHandle, error)
+	runPipeline        func(context.Context, config.Config, string, platform.Platform) error
+	newContext         func() (context.Context, context.CancelFunc)
+	newShutdownContext func() (context.Context, context.CancelFunc)
+	now                func() time.Time
 }
 
 var entrypointFactoryMu sync.Mutex
@@ -109,7 +121,10 @@ func runPrivileged(dependencies entrypointDependencies, configuration config.Con
 		_, _ = fmt.Fprintf(dependencies.stderr, "Error: %v\n", err)
 		return 1
 	}
-	ctx := dependencies.newContext()
+	signalContext, stopSignals := dependencies.newContext()
+	defer stopSignals()
+	ctx, cancel := context.WithCancel(signalContext)
+	defer cancel()
 	if err := dependencies.requestElevation(ctx); err != nil {
 		_, _ = fmt.Fprintf(dependencies.stderr, "Error: %v\n", err)
 		return 1
@@ -122,10 +137,47 @@ func runPrivileged(dependencies entrypointDependencies, configuration config.Con
 		_, _ = fmt.Fprintf(dependencies.stderr, "Error: %v\n", err)
 		return 1
 	}
-	defer keepalive.Stop()
 	timestamp := dependencies.now().UTC().Format("2006-01-02T15-04-05Z")
-	if err := dependencies.runPipeline(ctx, configuration, timestamp, currentPlatform); err != nil {
-		_, _ = fmt.Fprintf(dependencies.stderr, "Error: %v\n", err)
+	pipelineDone := make(chan error, 1)
+	go func() {
+		pipelineDone <- dependencies.runPipeline(ctx, configuration, timestamp, currentPlatform)
+	}()
+	var result error
+	joinPipeline := false
+	select {
+	case err := <-pipelineDone:
+		if err == nil {
+			if keepaliveErr := keepalive.Err(); keepaliveErr != nil {
+				err = keepaliveErr
+			}
+		}
+		result = err
+	case <-keepalive.Done():
+		result = keepalive.Err()
+		if result == nil {
+			result = errKeepaliveStopped
+		}
+		cancel()
+		joinPipeline = true
+	case <-ctx.Done():
+		result = ctx.Err()
+		joinPipeline = true
+	}
+
+	shutdownContext, cancelShutdown := dependencies.newShutdownContext()
+	defer cancelShutdown()
+	if joinPipeline {
+		select {
+		case <-pipelineDone:
+		case <-shutdownContext.Done():
+			result = errShutdownTimeout
+		}
+	}
+	if err := keepalive.Stop(shutdownContext); err != nil {
+		result = err
+	}
+	if result != nil {
+		_, _ = fmt.Fprintf(dependencies.stderr, "Error: %v\n", result)
 		return 1
 	}
 	return 0
@@ -150,14 +202,23 @@ func productionEntrypointDependencies() entrypointDependencies {
 			_, _ = fmt.Fprint(os.Stdout, string(guide))
 		},
 		runTUI:           runProductionTUI,
-		requestElevation: func(context.Context) error { return sudo.RequestElevation() },
+		requestElevation: sudo.RequestElevation,
 		startKeepalive: func(ctx context.Context) (keepaliveHandle, error) {
 			return sudo.StartKeepalive(ctx)
 		},
-		runPipeline: runProductionPipeline,
-		newContext:  context.Background,
-		now:         time.Now,
+		runPipeline:        runProductionPipeline,
+		newContext:         productionSignalContext,
+		newShutdownContext: productionShutdownContext,
+		now:                time.Now,
 	}
+}
+
+func productionSignalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
+func productionShutdownContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), productionShutdownTimeout)
 }
 
 func runProductionTUI(currentPlatform platform.Platform) error {
@@ -219,16 +280,13 @@ func runProductionPipelineWith(ctx context.Context, configuration config.Config,
 		Cancel:           ctx,
 		Assets:           assets,
 	}, progress)
-	criticalModules := make(map[installer.ModuleID]bool, len(plan))
-	for _, module := range plan {
-		criticalModules[module.ID()] = module.Criticality() == installer.Critical
-	}
+	var firstErr error
 	for event := range progress {
-		if event.Err != nil && criticalModules[event.ModuleID] {
-			return event.Err
+		if event.Err != nil && firstErr == nil {
+			firstErr = event.Err
 		}
 	}
-	return nil
+	return firstErr
 }
 
 type programTerminal struct{ program *tea.Program }
