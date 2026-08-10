@@ -678,7 +678,7 @@ TUI tests use **teatest** for full-program behavior and **golden files** for vis
 
 ## Phase 6 — Cheatsheets
 
-- [ ] **T-097** Write cheatsheets in `assets/cheatsheets/` using the structure from specs.md SCR-07: `## Links`, `## Key Shortcuts`, `## Usage Examples`. One `.md` file per tool, named after the tool (e.g., `ghostty.md`, `homebrew.md`).
+- [x] **T-097** Write cheatsheets in `assets/cheatsheets/` using the structure from specs.md SCR-07: `## Links`, `## Key Shortcuts`, `## Usage Examples`. One `.md` file per tool, named after the tool (e.g., `ghostty.md`, `homebrew.md`).
 
 All 48 tools: homebrew, zsh, oh-my-zsh, zellij, git, git-credential-oauth, lazygit, fnm, node, uv, python, go, c-cpp-toolchain, sdkman, java, php, neovim, neovim-personal, neovim-framework, atuin, zoxide, bat, eza, fd, ripgrep, fzf, sd, jq, yq, tldr, delta, bottom, thefuck, carapace, glow, gh, clipboard, docker, lazydocker, opencode, rtk, caveman, gentle-ai, mcp-servers, chezmoi, theme, nerd-font, ghostty.
 
