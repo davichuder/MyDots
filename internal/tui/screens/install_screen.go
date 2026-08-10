@@ -179,7 +179,11 @@ func (screen InstallScreen) currentReference() string {
 	if screen.currentModule == "" || screen.request.Assets == nil {
 		return "Reference not available"
 	}
-	content, err := fs.ReadFile(screen.request.Assets, "assets/cheatsheets/"+string(screen.currentModule)+".md")
+	slug := referenceSlug(screen.currentModule)
+	if slug == "" {
+		return "Reference not available"
+	}
+	content, err := fs.ReadFile(screen.request.Assets, "assets/cheatsheets/"+slug+".md")
 	if err != nil {
 		return "Reference not available"
 	}

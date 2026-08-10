@@ -29,7 +29,7 @@ func TestRequestElevation_SetsTerminalStreams(t *testing.T) {
 	}
 	defer restoreGlobals()
 
-	err := RequestElevation()
+	err := RequestElevation(context.Background())
 	if err != nil {
 		t.Fatalf("RequestElevation returned error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestRequestElevation_ExecutesSudoV(t *testing.T) {
 	}
 	defer restoreGlobals()
 
-	_ = RequestElevation()
+	_ = RequestElevation(context.Background())
 
 	if len(capturedArgs) < 2 {
 		t.Fatalf("expected at least 2 args, got: %v", capturedArgs)
@@ -73,7 +73,7 @@ func TestRequestElevation_ReturnsError(t *testing.T) {
 	}
 	defer restoreGlobals()
 
-	err := RequestElevation()
+	err := RequestElevation(context.Background())
 	if err != expectedErr {
 		t.Errorf("expected error %v, got: %v", expectedErr, err)
 	}
@@ -89,25 +89,135 @@ func TestDefaultKeepaliveInterval(t *testing.T) {
 
 func TestStartKeepalive_OutputToDiscard(t *testing.T) {
 	var capturedStdout, capturedStderr io.Writer
+	called := make(chan struct{}, 1)
 	runCmd = func(cmd *exec.Cmd) error {
 		capturedStdout = cmd.Stdout
 		capturedStderr = cmd.Stderr
+		called <- struct{}{}
 		return nil
 	}
 	keepaliveInterval = 10 * time.Millisecond
 	defer restoreGlobals()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	StartKeepalive(ctx)
+	defer cancel()
+	handle, err := StartKeepalive(ctx)
+	if err != nil {
+		t.Fatalf("StartKeepalive returned error: %v", err)
+	}
+	defer func() { _ = handle.Stop(context.Background()) }()
 
-	time.Sleep(15 * time.Millisecond)
-	cancel()
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("keepalive did not execute sudo validation")
+	}
 
 	if capturedStdout != io.Discard {
 		t.Error("sudo stdout should go to io.Discard")
 	}
 	if capturedStderr != io.Discard {
 		t.Error("sudo stderr should go to io.Discard")
+	}
+}
+
+func TestKeepaliveReportsRefreshFailureAndJoins(t *testing.T) {
+	refresh := make(chan time.Time, 1)
+	wantErr := errors.New("sudo refresh failed")
+
+	handle, err := startKeepaliveWith(context.Background(), refresh, func(context.Context) error { return wantErr })
+	if err != nil {
+		t.Fatalf("startKeepaliveWith returned error: %v", err)
+	}
+	refresh <- time.Now()
+	select {
+	case <-handle.Done():
+	case <-time.After(time.Second):
+		t.Fatal("keepalive did not terminate after refresh failure")
+	}
+	if !errors.Is(handle.Err(), wantErr) {
+		t.Errorf("keepalive error = %v, want %v", handle.Err(), wantErr)
+	}
+	_ = handle.Stop(context.Background())
+	_ = handle.Stop(context.Background())
+}
+
+func TestKeepaliveStopCancelsInFlightRefreshWithoutReportingHealthFailure(t *testing.T) {
+	refresh := make(chan time.Time, 1)
+	testContext, cancelTest := context.WithTimeout(t.Context(), time.Second)
+	defer cancelTest()
+	refreshStarted := make(chan struct{})
+	refreshCanceled := make(chan struct{})
+
+	handle, err := startKeepaliveWith(testContext, refresh, func(ctx context.Context) error {
+		close(refreshStarted)
+		select {
+		case <-ctx.Done():
+			close(refreshCanceled)
+			return ctx.Err()
+		case <-testContext.Done():
+			return testContext.Err()
+		}
+	})
+	if err != nil {
+		t.Fatalf("startKeepaliveWith returned error: %v", err)
+	}
+
+	refresh <- time.Now()
+	select {
+	case <-refreshStarted:
+	case <-testContext.Done():
+		t.Fatal("keepalive did not start the refresh")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		_ = handle.Stop(context.Background())
+		close(stopped)
+	}()
+
+	select {
+	case <-refreshCanceled:
+	case <-testContext.Done():
+		t.Fatal("Stop did not cancel the in-flight refresh")
+	}
+	select {
+	case <-stopped:
+	case <-testContext.Done():
+		t.Fatal("Stop did not join the canceled refresh")
+	}
+	if err := handle.Err(); err != nil {
+		t.Errorf("keepalive error after Stop = %v, want nil", err)
+	}
+
+	if err := handle.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() = %v, want nil", err)
+	}
+}
+
+func TestKeepaliveStopReturnsTimeoutForNonCooperativeRefresh(t *testing.T) {
+	refresh := make(chan time.Time, 1)
+	refreshStarted := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	handle, err := startKeepaliveWith(context.Background(), refresh, func(context.Context) error {
+		close(refreshStarted)
+		<-releaseRefresh // Deliberately violates the cancellation contract.
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("startKeepaliveWith returned error: %v", err)
+	}
+	refresh <- time.Time{}
+	<-refreshStarted
+
+	shutdownContext, cancelShutdown := context.WithCancel(context.Background())
+	cancelShutdown()
+	if err := handle.Stop(shutdownContext); !errors.Is(err, ErrShutdownTimeout) {
+		t.Fatalf("Stop() error = %v, want ErrShutdownTimeout", err)
+	}
+	close(releaseRefresh)
+	if err := handle.Stop(context.Background()); err != nil {
+		t.Fatalf("idempotent Stop() = %v, want nil after join", err)
 	}
 }
 
@@ -125,7 +235,10 @@ func TestStartKeepalive_StopsOnCancel(t *testing.T) {
 	defer restoreGlobals()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	StartKeepalive(ctx)
+	handle, err := StartKeepalive(ctx)
+	if err != nil {
+		t.Fatalf("StartKeepalive returned error: %v", err)
+	}
 
 	time.Sleep(25 * time.Millisecond)
 
@@ -134,6 +247,7 @@ func TestStartKeepalive_StopsOnCancel(t *testing.T) {
 	mu.Unlock()
 
 	cancel()
+	_ = handle.Stop(context.Background())
 
 	// Wait long enough that an alive goroutine would tick several times
 	time.Sleep(50 * time.Millisecond)
@@ -165,7 +279,10 @@ func TestStartKeepalive_AlreadyCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled before StartKeepalive
 
-	StartKeepalive(ctx)
+	handle, err := StartKeepalive(ctx)
+	if !errors.Is(err, context.Canceled) || handle != nil {
+		t.Fatalf("StartKeepalive() = (%v, %v), want (nil, context.Canceled)", handle, err)
+	}
 
 	time.Sleep(30 * time.Millisecond)
 
@@ -194,8 +311,14 @@ func TestStartKeepalive_MultipleCalls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	StartKeepalive(ctx)
-	StartKeepalive(ctx)
+	first, err := StartKeepalive(ctx)
+	if err != nil {
+		t.Fatalf("first StartKeepalive returned error: %v", err)
+	}
+	second, err := StartKeepalive(ctx)
+	if err != nil {
+		t.Fatalf("second StartKeepalive returned error: %v", err)
+	}
 
 	time.Sleep(35 * time.Millisecond)
 
@@ -208,4 +331,7 @@ func TestStartKeepalive_MultipleCalls(t *testing.T) {
 	if count < 2 {
 		t.Errorf("expected at least 2 sudo calls across 2 goroutines, got: %d", count)
 	}
+	cancel()
+	_ = first.Stop(context.Background())
+	_ = second.Stop(context.Background())
 }

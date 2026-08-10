@@ -100,7 +100,7 @@ func TestInstallScreenInitAndInitialSizeStartOneSession(t *testing.T) {
 func TestInstallScreenQuestionTogglesCurrentModuleReference(t *testing.T) {
 	events := make(chan InstallEvent, 1)
 	events <- InstallEvent{Kind: InstallProgressEvent, Progress: installer.ProgressEvent{ModuleID: installer.ModGit, Status: "running"}}
-	screen := NewInstallScreen(InstallRequest{Assets: fstest.MapFS{"assets/cheatsheets/M-05.md": {Data: []byte("Git reference\n")}}}, &fakeSessionRunner{events: events}, fakeElevation{keepalive: &fakeKeepalive{}})
+	screen := NewInstallScreen(InstallRequest{Assets: fstest.MapFS{"assets/cheatsheets/git.md": {Data: []byte("Git reference\n")}}}, &fakeSessionRunner{events: events}, fakeElevation{keepalive: &fakeKeepalive{}})
 
 	started, startCommand := screen.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	screen = installScreen(t, started)
